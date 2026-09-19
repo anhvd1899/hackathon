@@ -1,0 +1,57 @@
+version: 2
+
+# fact_orders / dim_customers do job Python nap vao (data/jobs/*), nen dbt coi la SOURCE.
+# Cac test duoi day la "nguon su that" cua DQ rule — dong bo voi data/dq.py.
+sources:
+  - name: main
+    description: "DuckDB warehouse (vua la Source vua la Sink cho agent)"
+    tables:
+      - name: fact_orders
+        description: "Bang fact don hang, nap tu 4 source_system khac nhau"
+        columns:
+          - name: order_id
+            description: "Khoa chinh cua don hang"
+            tests:
+              - unique
+              - not_null
+          - name: order_date
+            tests:
+              - not_null
+          - name: customer_id
+            description: >
+              Dinh danh khach hang. SDK mobile 3.4.1 doi ten field user_ref ->
+              customer_ref khien job ingestion ghi NULL vao cot nay.
+            tests:
+              - not_null
+          - name: order_status
+            tests:
+              - accepted_values:
+                  values: ["COMPLETED", "PENDING", "CANCELLED", "REFUNDED"]
+          - name: total_amount
+            tests:
+              - not_null
+
+      - name: dim_customers
+        columns:
+          - name: customer_id
+            tests:
+              - unique
+              - not_null
+
+models:
+  - name: mart_daily_revenue
+    description: "Tier-0: doanh thu theo ngay, phuc vu dashboard Finance luc 08:00"
+    columns:
+      - name: order_date
+        tests:
+          - unique
+          - not_null
+      - name: orphan_orders
+        description: "So don khong quy duoc ve khach hang — ky vong = 0"
+
+  - name: mart_customer_ltv
+    description: "Tier-0: lifetime value theo khach hang, phuc vu Customer 360"
+    columns:
+      - name: customer_id
+        tests:
+          - not_null

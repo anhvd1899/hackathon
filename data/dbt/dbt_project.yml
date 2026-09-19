@@ -1,0 +1,14 @@
+name: "data_reliability"
+version: "1.0.0"
+config-version: 2
+
+profile: "data_reliability"
+
+model-paths: ["models"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# Cac mart deu materialize thanh table de agent co the DELETE/rebuild truc tiep
+models:
+  data_reliability:
+    +materialized: table

@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets
+.env
+
+# DuckDB warehouse (sinh lai bang: python -m data.jobs.seed_warehouse --force)
+*.duckdb
+*.duckdb.wal
+var/
+
+# dbt artifacts (scope data)
+data/dbt/target/
+data/dbt/dbt_packages/
+data/dbt/logs/
+
+# Chainlit runtime (scope web)
+.chainlit/
+.files/
+.md

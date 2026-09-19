@@ -1,0 +1,14 @@
+# Profile dbt-duckdb tro vao CUNG file warehouse ma Python dang dung.
+# Duong dan lay tu bien moi truong DRA_DUCKDB_PATH (xem config.py), fallback la
+# file warehouse.duckdb nam canh package data/.
+#
+# LUU Y: DuckDB chi cho 1 tien trinh GHI vao file cung luc. Hay TAT web server
+# truoc khi chay `dbt run` / `dbt test`, neu khong se gap loi file lock.
+data_reliability:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DRA_DUCKDB_PATH', '../warehouse.duckdb') }}"
+      schema: main
+      threads: 1

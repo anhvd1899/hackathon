@@ -1,0 +1,7 @@
+# Data Reliability Agent - minimal dependencies
+openai>=1.40.0,<2.0.0
+pydantic>=2.7.0,<3.0.0
+duckdb>=1.0.0
+chainlit>=2.0.0,<3.0.0
+fastapi>=0.110.0
+uvicorn>=0.30.0
