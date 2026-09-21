@@ -1,0 +1,57 @@
+version: 2
+
+# Source = bảng do job Python nạp vào (data/jobs/*). dbt chỉ đọc, không quản lý.
+sources:
+  - name: warehouse
+    schema: main
+    description: "DuckDB warehouse — vừa là Source vừa là Sink cho AI agent"
+    tables:
+      - name: fact_orders
+        description: "Fact đơn hàng, hợp nhất từ 4 source_system"
+        columns:
+          - name: order_id
+            description: "Khoá chính đơn hàng"
+            tests: [not_null]
+          - name: order_date
+            tests: [not_null]
+          - name: customer_id
+            description: >
+              Định danh khách hàng. SDK mobile 3.4.1 đổi field user_ref -> customer_ref
+              khiến job ingestion ghi NULL vào cột này.
+            tests: [not_null]
+          - name: total_amount
+            tests: [not_null]
+      - name: dim_customers
+        columns:
+          - name: customer_id
+            tests: [unique, not_null]
+
+models:
+  - name: stg_orders
+    description: "Đơn hàng đã chuẩn hoá + gắn cờ chất lượng từng dòng"
+    columns:
+      - name: order_id
+        tests: [not_null]
+      - name: order_date
+        tests: [not_null]
+      - name: customer_id
+        description: "Cổng DQ chính: NULL ở đây là sự cố Tier-1"
+        tests: [not_null]
+      - name: order_status_normalized
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["COMPLETED", "PENDING", "CANCELLED", "REFUNDED"]
+      - name: total_amount
+        tests: [not_null]
+
+  - name: stg_customers
+    description: "Dimension khách hàng đã chuẩn hoá"
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+      - name: region
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["HCM", "HN", "DN", "CT", "HP"]

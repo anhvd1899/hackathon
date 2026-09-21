@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: mart_daily_revenue
+    description: >
+      Tier-0 · Doanh thu theo ngày. Consumer: dashboard "Finance Daily Revenue"
+      (Metabase, gửi mail 08:00) và "Executive KPI Overview".
+    columns:
+      - name: order_date
+        tests: [unique, not_null]
+      - name: gross_revenue
+        tests: [not_null]
+      - name: orphan_orders
+        description: "Số đơn không quy được về khách hàng — kỳ vọng 0"
+
+  - name: mart_customer_ltv
+    description: >
+      Tier-0 · Lifetime value theo khách hàng. Consumer: "Customer 360 & Retention"
+      và CRM segmentation job.
+    columns:
+      - name: customer_id
+        description: "NULL ở đây nghĩa là mart đã bị nhiễm dữ liệu bẩn từ fact"
+        tests: [not_null]
+      - name: lifetime_value
+        tests: [not_null]
+
+  - name: mart_revenue_by_region
+    description: "Tier-1 · Doanh thu theo vùng/segment."
+    columns:
+      - name: region
+        tests: [not_null]
+      - name: gross_revenue
+        tests: [not_null]
+
+  - name: mart_order_quality
+    description: >
+      Mart quan sát chất lượng: đếm cờ lỗi theo source_system/source_version/ngày.
+      Agent dùng bảng này để khoanh vùng nguyên nhân cho bất kỳ sự cố DQ nào.
+    columns:
+      - name: source_system
+        tests: [not_null]
+      - name: rows_total
+        tests: [not_null]

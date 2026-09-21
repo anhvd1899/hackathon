@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Chainlit Direct</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
+        iframe { border: 1px solid #ccc; }
+        .test-container { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Chainlit Loading Test</h1>
+    
+    <div class="test-container">
+        <h3>Test 1: Direct link to Chainlit</h3>
+        <a href="http://localhost:8000/chat/" target="_blank">Open Chainlit in new tab</a>
+    </div>
+    
+    <div class="test-container">
+        <h3>Test 2: Iframe with immediate loading</h3>
+        <iframe 
+            id="iframe1"
+            src="http://localhost:8000/chat/"
+            width="800" 
+            height="400"
+        ></iframe>
+    </div>
+    
+    <div class="test-container">
+        <h3>Test 3: Iframe with lazy loading (our implementation)</h3>
+        <button onclick="loadIframe2()">Load Chainlit</button>
+        <div id="status2">Not loaded</div>
+        <iframe 
+            id="iframe2"
+            src="about:blank"
+            data-src="http://localhost:8000/chat/"
+            width="800" 
+            height="400"
+            style="display:block;"
+        ></iframe>
+    </div>
+
+    <script>
+        function loadIframe2() {
+            const iframe = document.getElementById('iframe2');
+            const status = document.getElementById('status2');
+            
+            console.log('Loading iframe2...', iframe);
+            status.textContent = 'Loading...';
+            
+            if (iframe && !iframe.dataset.loaded) {
+                iframe.dataset.loaded = '1';
+                iframe.src = iframe.dataset.src;
+                console.log('Set iframe src to:', iframe.src);
+                
+                iframe.onload = function() {
+                    console.log('Iframe loaded successfully');
+                    status.textContent = 'Loaded!';
+                };
+                
+                iframe.onerror = function() {
+                    console.error('Iframe failed to load');
+                    status.textContent = 'Failed to load';
+                };
+            }
+        }
+        
+        // Test iframe1 loading
+        document.getElementById('iframe1').onload = function() {
+            console.log('Direct iframe loaded successfully');
+        };
+        
+        document.getElementById('iframe1').onerror = function() {
+            console.error('Direct iframe failed to load');
+        };
+    </script>
+</body>
+</html>

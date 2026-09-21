@@ -9,6 +9,7 @@ Tách riêng phần "biến dữ liệu thành markdown/nút" khỏi phần đi�
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 import chainlit as cl
@@ -95,10 +96,28 @@ def format_tool_output(event: ToolEvent) -> str:
     return "✅ " + json.dumps(res, ensure_ascii=False, default=str)[:500]
 
 
+#: Chainlit chỉ phục vụ avatar khi tên khớp `^[a-zA-Z0-9_ .-]+$`
+#: (xem `chainlit/server.py::get_avatar`) — tên step chứa emoji/SQL (`*`, `(`, `,`, `…`)
+#: sẽ bị frontend GET `/avatars/<tên>` rồi nhận 400. Nên tên step phải ngắn + ASCII.
+_AVATAR_SAFE_RE = re.compile(r"[^a-zA-Z0-9_ .\-]+")
+
+
+def step_name(event: ToolEvent) -> str:
+    """Tên ngắn, ASCII-safe cho `cl.Step` — SQL đầy đủ đã nằm trong `step.input`."""
+    base = {
+        "tool_query_duckdb": "DuckDB query",
+        "tool_read_runbook": f"Read runbook {event.arguments.get('topic', '?')}",
+        "tool_execute_remediation": "Execute remediation",
+        "tool_verify_health": f"Verify {event.arguments.get('table_name', '?')}",
+        "tool_get_incident_context": "Incident context",
+    }.get(event.name, event.name)
+    safe = _AVATAR_SAFE_RE.sub("", base).strip()
+    return (safe[:80] or event.name)
+
+
 async def render_tool_step(event: ToolEvent) -> None:
     """Hiển thị 1 tool call thành 1 Step có thể bấm mở xem chi tiết."""
-    icon = STEP_ICON.get(event.name, "🔧")
-    async with cl.Step(name=f"{icon} {event.short_label}", type="tool") as step:
+    async with cl.Step(name=step_name(event), type="tool") as step:
         step.input = json.dumps(event.arguments, ensure_ascii=False, indent=2)[:2000]
         step.output = format_tool_output(event)
 
@@ -108,14 +127,68 @@ async def render_tool_step(event: ToolEvent) -> None:
 # ---------------------------------------------------------------------------
 
 
+def publish_actions() -> List[cl.Action]:
+    """
+    **BƯỚC 2** — nút Publish, chỉ hiện sau khi Agent 2 nghiệm thu đạt.
+
+    Tách thành hàm riêng (thay vì thêm nút vào `approval_actions`) để không có đường
+    nào hiện nút này trước khi có chứng nhận.
+    """
+    return [
+        cl.Action(
+            name="publish_prod",
+            payload={"decision": "publish"},
+            label="🚀 PUBLISH TO PRODUCTION (Bảng Thật)",
+            tooltip="Atomic swap bảng bóng thành bảng thật trong một transaction",
+        ),
+        cl.Action(
+            name="cancel_shadow",
+            payload={"decision": "cancel"},
+            label="🛑 Huỷ & Xoá Staging",
+            tooltip="Drop bảng bóng, bảng thật không bị thay đổi",
+        ),
+    ]
+
+
+def triage_actions(can_replan: bool = True, retry_count: int = 0) -> List[cl.Action]:
+    """
+    Ba lựa chọn cứu hộ khi Agent 2 nghiệm thu KHÔNG ĐẠT.
+
+    Không để engineer ở ngõ cụt: mỗi nhánh là một đường đi tiếp rõ ràng. Nút re-plan
+    biến mất khi hết lượt (Bounded Reflection Loop) thay vì báo lỗi sau khi bấm.
+    """
+    actions: List[cl.Action] = []
+    if can_replan:
+        actions.append(
+            cl.Action(
+                name="replan_agent",
+                payload={"decision": "replan"},
+                label=f"🤖 Cho Agent 1 Re-plan ({retry_count}/1)",
+                tooltip="Gửi mã lỗi của Agent 2 để Agent 1 soi DESCRIBE và viết script v2",
+            )
+        )
+    actions.append(
+        cl.Action(
+            name="cancel_shadow",
+            payload={"decision": "cancel"},
+            label="🛑 Huỷ Bỏ & Xoá Staging",
+            tooltip="Drop bảng bóng, đóng sự cố an toàn — bảng thật chưa từng bị chạm",
+        )
+    )
+    return actions
+
+
 def approval_actions() -> List[cl.Action]:
-    """2 nút duyệt/từ chối cho Agent 1."""
+    """2 nút duyệt/từ chối cho Agent 1 — BƯỚC 1: chỉ chạy trên bảng bóng."""
     return [
         cl.Action(
             name="approve",
             payload={"decision": "approve"},
-            label="✅ Duyệt Remediation",
-            tooltip="Cho phép Agent 1 thực thi script vá dữ liệu, sau đó Agent 2 nghiệm thu",
+            label="🧪 Duyệt Chạy Thử Trên Staging",
+            tooltip=(
+                "Chạy script vá trên shadow_<table>. Bảng production KHÔNG bị chạm; "
+                "Agent 2 sẽ nghiệm thu trên bảng bóng trước khi mở nút Publish."
+            ),
         ),
         cl.Action(
             name="reject",
@@ -127,7 +200,7 @@ def approval_actions() -> List[cl.Action]:
 
 
 def audit_actions() -> List[cl.Action]:
-    """Nút chạy lại nghiệm thu độc lập (Agent 2)."""
+    """Nút chạy nghiệm thu độc lập (Agent 2) — dùng được bất cứ lúc nào."""
     return [
         cl.Action(
             name="audit",
@@ -136,6 +209,36 @@ def audit_actions() -> List[cl.Action]:
             tooltip="Agent 2 tự query DuckDB kiểm tra lại, không tin báo cáo của Agent 1",
         )
     ]
+
+
+def recheck_decision_actions(allow_skip: bool = True) -> List[cl.Action]:
+    """
+    Điểm quyết định SAU KHI Agent 1 đã vá xong: engineer chọn có recheck hay không.
+
+    Đây là human-in-the-loop thứ hai. Với lỗi đơn giản mà engineer đã biết rõ, bỏ qua
+    recheck giúp tiết kiệm thời gian và token (Agent 2 tốn thêm ~30-60k token/lượt).
+
+    `allow_skip=False` khi remediation THẤT BẠI — lúc đó chốt luôn là sai, nên chỉ cho
+    recheck hoặc escalate.
+    """
+    actions = [
+        cl.Action(
+            name="audit",
+            payload={"decision": "recheck"},
+            label="🕵️‍♀️ Có, recheck độc lập đi",
+            tooltip="Agent 2 tự viết SQL kiểm lại: dữ liệu còn bẩn không, có mất dòng nào không",
+        )
+    ]
+    if allow_skip:
+        actions.append(
+            cl.Action(
+                name="skip_audit",
+                payload={"decision": "skip"},
+                label="⚡ Không cần, chốt luôn",
+                tooltip="Đóng incident ngay mà không chạy Agent 2 (dùng khi lỗi đơn giản, đã rõ)",
+            )
+        )
+    return actions
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +316,8 @@ __all__ = [
     "format_tool_output",
     "render_tool_step",
     "approval_actions",
+    "publish_actions",
+    "triage_actions",
     "audit_actions",
     "warehouse_snapshot",
     "brain_badge",

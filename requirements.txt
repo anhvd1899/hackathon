@@ -5,3 +5,8 @@ duckdb>=1.0.0
 chainlit>=2.0.0,<3.0.0
 fastapi>=0.110.0
 uvicorn>=0.30.0
+
+# dbt-duckdb: pipeline + DQ tests + lineage DAG (dbt docs embedded at /lineage).
+# Optional at runtime - without it the system falls back to plain-SQL DQ checks,
+# but then jobs/tests are no longer auto-derived from the dbt manifest.
+dbt-duckdb>=1.8,<2.0

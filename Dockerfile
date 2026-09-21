@@ -27,10 +27,13 @@ COPY data/ ./data/
 COPY ai/ ./ai/
 COPY web/ ./web/
 
-# Khoi tao san warehouse DuckDB (1000 dong + cac dong loi de demo)
+# Khoi tao warehouse + chay dbt (build model, cong DQ test, sinh lineage docs).
+# `|| true` vi `dbt test` FAIL la tin hieu nghiep vu binh thuong (co su co DQ),
+# khong phai loi build.
 RUN mkdir -p /app/var \
     && python -m data.jobs.seed_warehouse --force \
-    && python -m data.jobs.run_dq_tests || true
+    && python -m data.jobs.run_dbt --all || true \
+    && python -m data.jobs.run_pipeline --all || true
 
 # Chay bang user thuong (khong root)
 RUN useradd --create-home --shell /bin/bash agent \

@@ -1,0 +1,68 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Chainlit Integration</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        button { padding: 10px 20px; margin: 5px; background: #007cba; color: white; border: none; cursor: pointer; }
+        iframe { border: 1px solid #333; margin: 10px 0; }
+        #status { margin: 10px 0; padding: 10px; background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <h1>Chainlit Integration Debug</h1>
+    
+    <div class="test-section">
+        <h3>Test 1: Direct Chainlit Link</h3>
+        <a href="http://localhost:8000/chat/" target="_blank">Open Chainlit in New Tab</a>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 2: Embedded Iframe (Immediate)</h3>
+        <iframe 
+            src="http://localhost:8000/chat/"
+            width="800" 
+            height="400"
+            title="Direct Chainlit Embed">
+        </iframe>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 3: Lazy Loading (Like Dashboard)</h3>
+        <button onclick="loadChainlit()">Load Chainlit</button>
+        <div id="status">Not loaded</div>
+        <iframe 
+            id="test-iframe"
+            src="about:blank"
+            width="800" 
+            height="400"
+            title="Lazy Chainlit Embed">
+        </iframe>
+    </div>
+
+    <script>
+        function loadChainlit() {
+            const iframe = document.getElementById('test-iframe');
+            const status = document.getElementById('status');
+            
+            console.log('Loading Chainlit iframe...');
+            status.textContent = 'Loading...';
+            
+            iframe.src = 'http://localhost:8000/chat/';
+            
+            iframe.onload = function() {
+                console.log('Chainlit iframe loaded successfully!');
+                status.textContent = 'Loaded Successfully!';
+                status.style.background = '#d4edda';
+            };
+            
+            iframe.onerror = function() {
+                console.error('Chainlit iframe failed to load');
+                status.textContent = 'Failed to Load';
+                status.style.background = '#f8d7da';
+            };
+        }
+    </script>
+</body>
+</html>

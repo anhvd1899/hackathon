@@ -18,31 +18,55 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from data.connection import CONN_LOCK, get_connection, scalar
+from data.connection import CONN_LOCK, fetch, get_connection, scalar
 
 
 @dataclass(frozen=True)
 class DQCheck:
-    """Một DQ test trên warehouse."""
+    """
+    Một DQ test trên warehouse.
+
+    Có 2 nguồn:
+      - `source="dbt"`      : sinh từ manifest dbt (mặc định, mở rộng vô hạn)
+      - `source="builtin"`  : bộ dự phòng viết tay trong file này
+    """
 
     test_name: str
     model: str
     column_name: str
-    test_type: str  # not_null | unique | accepted_values | positive_value
+    test_type: str  # not_null | unique | accepted_values | singular | ...
     count_sql: str
     description: str = ""
     accepted_values: Optional[List[str]] = None
+    source: str = "builtin"
+    severity: str = "error"
 
     def run(self) -> int:
-        """Trả về số dòng vi phạm."""
-        value = scalar(self.count_sql, default=0)
+        """
+        Trả về số dòng vi phạm (0 = đạt).
+
+        **Cố tình KHÔNG nuốt lỗi SQL.** Nếu dùng `scalar()` (có default) thì một check
+        bị lỗi — ví dụ bảng staging chưa được dbt build — sẽ trả 0 và bị báo là PASS,
+        tức là hệ thống nói "dữ liệu sạch" trong khi thực tế nó không kiểm được gì.
+        Ném lỗi lên để caller đánh dấu trạng thái `error` thay vì `pass`.
+        """
+        if not self.count_sql.strip():
+            raise ValueError(f"Check '{self.test_name}' không có count_sql")
+        result = fetch(self.count_sql.rstrip().rstrip(";"), max_rows=1)
+        if not result["rows"]:
+            raise ValueError(f"Check '{self.test_name}' không trả về dòng nào")
+        value = list(result["rows"][0].values())[0]
         try:
             return int(value or 0)
-        except (TypeError, ValueError):
-            return 0
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Check '{self.test_name}' trả về giá trị không phải số: {value!r}"
+            ) from exc
 
 
-DQ_CHECKS: List[DQCheck] = [
+#: Bộ check DỰ PHÒNG, chỉ dùng khi chưa có manifest dbt (chưa cài dbt / chưa chạy dbt).
+#: Nguồn sự thật chính là các test trong `data/dbt/` — xem `load_checks()` bên dưới.
+FALLBACK_CHECKS: List[DQCheck] = [
     DQCheck(
         test_name="not_null_fact_orders_customer_id",
         model="fact_orders",
@@ -103,7 +127,113 @@ DQ_CHECKS: List[DQCheck] = [
     ),
 ]
 
-CHECKS_BY_NAME: Dict[str, DQCheck] = {c.test_name: c for c in DQ_CHECKS}
+# ---------------------------------------------------------------------------
+# Nguồn sự thật: test dbt (manifest) — fallback về FALLBACK_CHECKS
+# ---------------------------------------------------------------------------
+
+
+def load_checks(prefer_dbt: bool = True) -> List[DQCheck]:
+    """
+    Trả về bộ DQ check đang hiệu lực.
+
+    Ưu tiên **test dbt đọc từ manifest**: mỗi test dbt (generic hay singular) được
+    chuyển thành một `DQCheck` với `count_sql` bọc quanh SQL mà chính dbt đã compile.
+    Nhờ vậy thêm test vào `data/dbt/models/*/schema.yml` là hệ thống tự biết — không
+    phải sửa dòng Python nào, và không bị fix cứng vào use case demo.
+
+    Chỉ khi chưa có manifest (chưa cài dbt-duckdb, hoặc chưa `dbt docs generate`) thì
+    mới dùng `FALLBACK_CHECKS`.
+    """
+    if prefer_dbt:
+        try:
+            from data.dbt_runner import dbt_tests
+
+            converted = [
+                DQCheck(
+                    test_name=test.name,
+                    model=test.model or "fact_orders",
+                    column_name=test.column_name,
+                    test_type=test.test_type,
+                    count_sql=test.count_sql,
+                    description=test.description or f"dbt test `{test.name}`",
+                    accepted_values=None,
+                    source="dbt",
+                    severity=test.severity,
+                )
+                for test in dbt_tests()
+                if test.count_sql
+            ]
+            if converted:
+                return converted
+        except Exception:  # noqa: BLE001 - thiếu dbt thì rơi về fallback
+            pass
+    return list(FALLBACK_CHECKS)
+
+
+def checks_by_name(prefer_dbt: bool = True) -> Dict[str, DQCheck]:
+    return {check.test_name: check for check in load_checks(prefer_dbt)}
+
+
+class _LazyCheckList(list):
+    """
+    Cho phép `DQ_CHECKS` / `CHECKS_BY_NAME` vẫn dùng như trước (code cũ không phải sửa)
+    nhưng luôn đọc lại từ manifest khi được truy cập.
+    """
+
+    def _refresh(self) -> None:
+        self[:] = load_checks()
+
+    def __iter__(self):  # type: ignore[override]
+        self._refresh()
+        return list.__iter__(self)
+
+    def __len__(self) -> int:  # type: ignore[override]
+        self._refresh()
+        return list.__len__(self)
+
+    def __getitem__(self, index):  # type: ignore[override]
+        self._refresh()
+        return list.__getitem__(self, index)
+
+
+class _LazyCheckMap(dict):
+    """Bản dict tương ứng, tự nạp lại từ manifest mỗi lần tra cứu."""
+
+    def _refresh(self) -> None:
+        self.clear()
+        self.update(checks_by_name())
+
+    def get(self, key, default=None):  # type: ignore[override]
+        self._refresh()
+        return dict.get(self, key, default)
+
+    def __getitem__(self, key):  # type: ignore[override]
+        self._refresh()
+        return dict.__getitem__(self, key)
+
+    def __contains__(self, key) -> bool:  # type: ignore[override]
+        self._refresh()
+        return dict.__contains__(self, key)
+
+    def __iter__(self):  # type: ignore[override]
+        self._refresh()
+        return dict.__iter__(self)
+
+    def __len__(self) -> int:  # type: ignore[override]
+        self._refresh()
+        return dict.__len__(self)
+
+    def keys(self):  # type: ignore[override]
+        self._refresh()
+        return dict.keys(self)
+
+    def values(self):  # type: ignore[override]
+        self._refresh()
+        return dict.values(self)
+
+
+DQ_CHECKS: List[DQCheck] = _LazyCheckList(FALLBACK_CHECKS)
+CHECKS_BY_NAME: Dict[str, DQCheck] = _LazyCheckMap()
 
 
 def run_all_checks(
@@ -121,20 +251,26 @@ def run_all_checks(
     rid = run_id or f"dq-run-{stamp:%Y%m%d-%H%M%S}"
 
     results: List[Dict[str, Any]] = []
-    for check in DQ_CHECKS:
-        failures = check.run()
+    for check in load_checks():
+        try:
+            failures = check.run()
+            status = "fail" if failures else "pass"
+            message = f"Got {failures} results, configured to fail if != 0" if failures else "OK"
+        except Exception as exc:  # noqa: BLE001
+            # Không kiểm được KHÁC với kiểm xong và sạch -> phải là 'error', không phải 'pass'
+            failures = 0
+            status = "error"
+            message = f"Không chạy được check: {exc}"[:400]
         results.append(
             {
                 "run_id": rid,
                 "test_name": check.test_name,
                 "model": check.model,
                 "column_name": check.column_name,
-                "status": "fail" if failures else "pass",
+                "status": status,
                 "failures": failures,
                 "executed_at": stamp,
-                "message": (
-                    f"Got {failures} results, configured to fail if != 0" if failures else "OK"
-                ),
+                "message": message,
             }
         )
 
@@ -163,4 +299,13 @@ def latest_run_id() -> Optional[str]:
     return str(value) if value else None
 
 
-__all__ = ["DQCheck", "DQ_CHECKS", "CHECKS_BY_NAME", "run_all_checks", "latest_run_id"]
+__all__ = [
+    "DQCheck",
+    "FALLBACK_CHECKS",
+    "DQ_CHECKS",
+    "CHECKS_BY_NAME",
+    "load_checks",
+    "checks_by_name",
+    "run_all_checks",
+    "latest_run_id",
+]

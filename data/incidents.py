@@ -29,7 +29,7 @@ PIPELINE_LOG_TAIL: List[str] = [
 
 
 def build_incident_payload(
-    test_name: str = "not_null_fact_orders_customer_id",
+    test_name: str = "source_not_null_warehouse_fact_orders_customer_id",
     incident_id: Optional[str] = None,
     db_path: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -48,22 +48,13 @@ def build_incident_payload(
         )
 
     failures = int(scalar(check.count_sql, default=0) or 0)
-    total = int(scalar("SELECT COUNT(*) AS c FROM fact_orders", default=0) or 0)
+    # Dùng bảng mục tiêu động thay vì hardcode fact_orders
+    target_table = check.model or "fact_orders"
+    total = int(scalar(f"SELECT COUNT(*) AS c FROM {target_table}", default=0) or 0)
     run_id = latest_run_id() or "dq-run-unknown"
 
     sample = fetch(
-        f"""
-        SELECT order_id, order_date, customer_id, total_amount,
-               order_status, source_system, source_version, ingested_at
-        FROM {check.model}
-        WHERE {check.column_name} IS NULL
-           OR order_id IN (
-                SELECT order_id FROM {check.model}
-                WHERE {check.column_name} IS NULL
-           )
-        ORDER BY ingested_at
-        LIMIT 3
-        """
+        f"SELECT * FROM {check.model} WHERE {check.column_name} IS NULL LIMIT 3"
         if check.test_type == "not_null"
         else f"SELECT * FROM {check.model} LIMIT 3",
         max_rows=3,
@@ -117,9 +108,115 @@ def build_incident_payload(
     }
 
 
+def build_dynamic_sample_incident_payload(db_path: Optional[str] = None) -> Dict[str, Any]:
+    """Generate dynamic incident sample based on current failed tests."""
+    ensure_database(db_path or config.DUCKDB_PATH)
+    
+    # Find any failing test to create a realistic sample
+    failed_tests_result = fetch(
+        "SELECT test_name, column_name, failures, model FROM dq_test_results "
+        "WHERE status = 'fail' ORDER BY failures DESC LIMIT 1",
+        max_rows=1
+    )
+    
+    if failed_tests_result["rows"]:
+        # Use real failing test
+        failed_test = failed_tests_result["rows"][0]
+        test_name = failed_test["test_name"]
+        
+        return build_incident_payload(
+            test_name=test_name,
+            db_path=db_path
+        )
+    else:
+        # No real failures, create sample with available data
+        # Find the largest table as a good example
+        tables_result = fetch("SHOW TABLES", max_rows=50)
+        
+        if tables_result["rows"]:
+            tables = [row["name"] for row in tables_result["rows"]]
+            
+            # Prefer fact tables
+            fact_tables = [t for t in tables if "fact" in t.lower()]
+            main_table = fact_tables[0] if fact_tables else tables[0]
+            
+            # Generate a synthetic incident for demonstration
+            return {
+                "incident_id": "INC-DEMO-001",
+                "incident_type": "DATA_QUALITY", 
+                "target_table": f"main.{main_table}",
+                "source": "dynamic_discovery",
+                "description": (
+                    f"Dynamic incident sample for table {main_table}. "
+                    f"This is a demonstration of the universal incident handling system."
+                ),
+                "evidence_payload": {
+                    "dbt_run_id": "demo-run",
+                    "failed_test": f"sample_test_{main_table}",
+                    "test_type": "custom",
+                    "model": main_table,
+                    "column": "dynamic_column",
+                    "accepted_values": None,
+                    "failures": 0,
+                    "total_rows_scanned": 0,
+                    "failure_rate_pct": 0.0,
+                    "compiled_sql": f"SELECT COUNT(*) FROM {main_table}",
+                    "rule_description": "Dynamic sample incident for demonstration",
+                    "sample_failed_rows": [],
+                    "other_failed_tests": [],
+                    "upstream_hint": {
+                        "source_system": "dynamic_system",
+                        "source_version": "dynamic_version",
+                    },
+                    "pipeline_log_tail": [
+                        f"[INFO] Dynamic discovery found table: {main_table}",
+                        "[INFO] Generating sample incident for demonstration",
+                        "[INFO] Universal system ready for any data quality issue"
+                    ],
+                }
+            }
+        else:
+            # Fallback to basic structure
+            return {
+                "incident_id": "INC-EMPTY-001", 
+                "incident_type": "DATA_QUALITY",
+                "target_table": "main.no_tables",
+                "source": "empty_database",
+                "description": "No tables found in database - empty database scenario",
+                "evidence_payload": {
+                    "dbt_run_id": "empty-run",
+                    "failed_test": "no_test",
+                    "test_type": "empty",
+                    "model": "no_tables",
+                    "column": "no_column", 
+                    "accepted_values": None,
+                    "failures": 0,
+                    "total_rows_scanned": 0,
+                    "failure_rate_pct": 0.0,
+                    "compiled_sql": "SELECT 0",
+                    "rule_description": "Empty database - no data to analyze",
+                    "sample_failed_rows": [],
+                    "other_failed_tests": [],
+                    "upstream_hint": {
+                        "source_system": "empty",
+                        "source_version": "none",
+                    },
+                    "pipeline_log_tail": [
+                        "[WARN] No tables found in database",
+                        "[INFO] System ready to handle incidents when data is available"
+                    ],
+                }
+            }
+
+
 def build_sample_incident_payload(db_path: Optional[str] = None) -> Dict[str, Any]:
-    """Incident mẫu cho demo: `not_null_fact_orders_customer_id` đang fail."""
-    return build_incident_payload(db_path=db_path)
+    """Enhanced sample incident that adapts to current database state."""
+    # Try dynamic approach first, fallback to hardcoded if needed
+    try:
+        return build_dynamic_sample_incident_payload(db_path)
+    except Exception:
+        # Fallback to original hardcoded approach
+        return build_incident_payload(db_path=db_path)
 
 
-__all__ = ["build_incident_payload", "build_sample_incident_payload", "PIPELINE_LOG_TAIL"]
+__all__ = ["build_incident_payload", "build_sample_incident_payload", "build_dynamic_sample_incident_payload", "PIPELINE_LOG_TAIL"]

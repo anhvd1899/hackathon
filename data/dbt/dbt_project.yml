@@ -5,10 +5,22 @@ config-version: 2
 profile: "data_reliability"
 
 model-paths: ["models"]
+test-paths: ["tests"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
-# Cac mart deu materialize thanh table de agent co the DELETE/rebuild truc tiep
+# Bảng thay vì view: agent cần DELETE/UPDATE trực tiếp khi vá dữ liệu,
+# và Agent 2 cần đếm số dòng thật để nghiệm thu.
 models:
   data_reliability:
     +materialized: table
+    staging:
+      +tags: ["staging"]
+    marts:
+      +tags: ["marts"]
+
+# Ngưỡng cảnh báo: test fail thì dbt trả exit code khác 0 -> scheduler bắt được
+tests:
+  data_reliability:
+    +severity: error
+    +store_failures: false

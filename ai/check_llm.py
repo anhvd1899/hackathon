@@ -27,8 +27,22 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+# Windows: console/pipe mac dinh la cp1252 -> in icon + tieng Viet co dau se
+# nem UnicodeEncodeError va giet script giua duong. Ep UTF-8 ngay tu dau.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except Exception:  # noqa: BLE001 - stream khong ho tro thi bo qua
+        pass
+
 from ai import tools  # noqa: F401  - nạp .env + khởi tạo đường dẫn DuckDB
-from ai.llm import LLMSettings
+from ai.llm import (
+    LLMSettings,
+    assistant_message_to_dict,
+    is_google_endpoint,
+    model_cost_rank,
+    normalize_model_id,
+)
 
 PASS = "✅ PASS"
 FAIL = "❌ FAIL"
@@ -50,7 +64,7 @@ def mask(secret: Optional[str]) -> str:
     return f"{secret[:6]}…{secret[-4:]} (dài {len(secret)} ký tự)"
 
 
-def probe_model(client: Any, model: str, label: str) -> Dict[str, bool]:
+def probe_model(client: Any, model: str, label: str, gemini: bool = False) -> Dict[str, bool]:
     """Chạy bộ kiểm tra cho một model cụ thể. Trả về dict các mục đạt/không."""
     print()
     print(f"┌─ Kiểm model: {model}   [{label}]")
@@ -132,25 +146,19 @@ def probe_model(client: Any, model: str, label: str) -> Dict[str, bool]:
 
         # Chạy thật tool đó trên DuckDB rồi đưa kết quả về cho model
         result = tools.execute_tool(first.function.name, first.function.arguments)
+        # Dùng chung helper với agent: giữ `extra_content` (thought_signature) để Gemini
+        # không trả 400 ở lượt thứ hai. Chỉ giữ tool_call đang có kết quả trả về, vì mỗi
+        # tool_call bắt buộc phải khớp đúng một message role="tool".
+        assistant_msg = assistant_message_to_dict(message, gemini=gemini)
+        assistant_msg["tool_calls"] = [
+            tc for tc in (assistant_msg.get("tool_calls") or []) if tc.get("id") == first.id
+        ]
         followup = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": "Trả lời ngắn, dựa đúng số liệu từ tool."},
                 {"role": "user", "content": "fact_orders có bao nhiêu dòng customer_id NULL?"},
-                {
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": [
-                        {
-                            "id": first.id,
-                            "type": "function",
-                            "function": {
-                                "name": first.function.name,
-                                "arguments": first.function.arguments or "{}",
-                            },
-                        }
-                    ],
-                },
+                assistant_msg,
                 {
                     "role": "tool",
                     "tool_call_id": first.id,
@@ -202,12 +210,88 @@ def probe_model(client: Any, model: str, label: str) -> Dict[str, bool]:
     return outcome
 
 
+def auto_pick(client: Any, settings: LLMSettings, limit: int = 6) -> int:
+    """
+    Tự tìm model **rẻ nhất mà vẫn đủ năng lực** cho 2 agent.
+
+    Cách làm: liệt kê model tài khoản có, xếp theo `model_cost_rank` (flash-lite < flash
+    < pro), rồi thử lần lượt tới khi có model pass cả chat + tool calling. Nhờ vậy không
+    phải hardcode tên model — tên model của nhà cung cấp thay đổi liên tục.
+    """
+    print()
+    print("=" * 78)
+    print("AUTO-PICK · tìm model rẻ nhất có hỗ trợ function calling")
+    print("=" * 78)
+
+    try:
+        listing = [normalize_model_id(m.id) for m in client.models.list().data]
+    except Exception as exc:  # noqa: BLE001
+        record("Liệt kê model", FAIL, f"{type(exc).__name__}: {str(exc)[:200]}")
+        return 1
+    if not listing:
+        record("Liệt kê model", FAIL, "endpoint trả về danh sách rỗng")
+        return 1
+
+    # Bỏ các model không phải sinh văn bản (embedding, tts, image…)
+    skip = ("embedding", "embed", "aqa", "tts", "image", "imagen", "veo", "vision-only")
+    candidates = [m for m in listing if not any(s in m.lower() for s in skip)]
+    candidates.sort(key=lambda m: (model_cost_rank(m), len(m)))
+
+    print(f"  {len(listing)} model khả dụng · {len(candidates)} model sinh văn bản")
+    print("  thứ tự thử (rẻ trước):")
+    for model in candidates[:limit]:
+        print(f"    rank={model_cost_rank(model)}  {model}")
+
+    gemini = is_google_endpoint(settings.base_url)
+    usable: List[str] = []
+    for model in candidates[:limit]:
+        outcome = probe_model(client, model, "ứng viên auto-pick", gemini=gemini)
+        if outcome["chat"] and outcome["tools"]:
+            usable.append(model)
+            if len(usable) >= 2:  # đủ cho cross-model (Maker + Checker)
+                break
+
+    print()
+    print("-" * 78)
+    if not usable:
+        print("KẾT LUẬN: ❌ Không model nào trong nhóm rẻ nhất hỗ trợ function calling.")
+        print(f"  Đã thử: {candidates[:limit]}")
+        print("  Hãy chạy lại với --limit lớn hơn, hoặc dùng model mạnh hơn (pro).")
+        print("=" * 78)
+        return 1
+
+    maker = usable[0]
+    checker = usable[1] if len(usable) > 1 else ""
+    print("KẾT LUẬN: ✅ Dán các dòng sau vào `.env`:")
+    print()
+    print(f"  DRA_BASE_URL={settings.base_url}")
+    print(f"  DRA_MODEL={maker}")
+    print(f"  DRA_MODEL_POOL={','.join(usable)}")
+    if checker:
+        print(f"  DRA_AUDITOR_MODEL={checker}       # cross-model: Checker khác Maker")
+    else:
+        print("  DRA_AUDITOR_MODEL=                 # chỉ có 1 model dùng được ->")
+        print("                                     # 2 agent dùng chung model")
+    print()
+    print(f"  Model rẻ nhất đủ năng lực : {maker} (rank {model_cost_rank(maker)})")
+    if checker:
+        print(f"  Model thứ hai cho Checker : {checker} (rank {model_cost_rank(checker)})")
+    print("=" * 78)
+    return 0
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Kiểm tra kết nối MaaS cho Data Reliability Squad")
+    parser = argparse.ArgumentParser(description="Kiểm tra kết nối LLM cho Data Reliability Squad")
     parser.add_argument("--api-key", default=None, help="Ghi đè DRA_API_KEY")
     parser.add_argument("--base-url", default=None, help="Ghi đè DRA_BASE_URL")
     parser.add_argument("--model", default=None, help="Chỉ kiểm duy nhất model này")
     parser.add_argument("--list-models", action="store_true", help="In toàn bộ model endpoint trả về")
+    parser.add_argument(
+        "--auto-pick",
+        action="store_true",
+        help="Tự tìm model rẻ nhất có hỗ trợ function calling rồi in ra dòng .env cần dán",
+    )
+    parser.add_argument("--limit", type=int, default=6, help="Số model thử khi --auto-pick")
     args = parser.parse_args()
 
     maker = LLMSettings.from_env()
@@ -223,9 +307,13 @@ def main() -> int:
         checker.model = args.model
         checker.model_pool = [args.model]
 
+    is_google = is_google_endpoint(maker.base_url)
+    provider = "Google AI Studio (Gemini, endpoint OpenAI-compatible)" if is_google else maker.base_url
+
     print("=" * 78)
-    print("KIỂM TRA KẾT NỐI MaaS — Data Reliability Squad (Maker · Checker)")
+    print("KIỂM TRA KẾT NỐI LLM — Data Reliability Squad (Maker · Checker)")
     print("=" * 78)
+    print(f"  nhà cung cấp      : {provider}")
     print(f"  base_url          : {maker.base_url}")
     print(f"  api_key           : {mask(maker.api_key)}")
     print(f"  model Maker  (A1) : {maker.model}")
@@ -239,8 +327,14 @@ def main() -> int:
         record(
             "1. Cấu hình API key",
             FAIL,
-            "Chưa có DRA_API_KEY. Tạo file .env (copy từ .env.example) rồi điền "
-            "DRA_API_KEY / DRA_BASE_URL / DRA_MODEL. Không có key thì app chạy OFFLINE.",
+            "Chưa có DRA_API_KEY."
+            + (
+                "\n       Lấy key miễn phí tại https://aistudio.google.com/apikey rồi điền vào "
+                "`DRA_API_KEY` trong .env,\n       sau đó chạy: python -m ai.check_llm --auto-pick"
+                if is_google
+                else "\n       Điền DRA_API_KEY / DRA_BASE_URL / DRA_MODEL trong .env."
+            )
+            + "\n       (Không có key thì app vẫn chạy được ở chế độ OFFLINE.)",
         )
         return 1
     record("1. Cấu hình API key", PASS, f"đọc được key {mask(maker.api_key)}")
@@ -258,16 +352,34 @@ def main() -> int:
         max_retries=1,
     )
 
+    # ---- 1c. Chế độ auto-pick ---------------------------------------------
+    # Chạy trước mọi thứ khác: lúc này .env có thể chưa có DRA_MODEL nào cả.
+    if args.auto_pick:
+        return auto_pick(client, maker, args.limit)
+
     # ---- 2. Liệt kê model --------------------------------------------------
     # Tập model cần kiểm: Maker + Checker + toàn bộ pool (vì failover có thể nhảy vào)
     to_check: List[str] = []
     for model in [maker.model, checker.model, *maker.model_pool, *checker.model_pool]:
+        model = normalize_model_id(model)
         if model and model not in to_check:
             to_check.append(model)
 
+    # Chưa cấu hình model nào -> không có gì để kiểm, đừng kết luận "PASS" giả.
+    if not to_check:
+        record(
+            "2. Danh sách model",
+            FAIL,
+            "Chưa cấu hình DRA_MODEL trong .env nên không có model nào để kiểm.\n"
+            "       Chạy trước: python -m ai.check_llm --auto-pick\n"
+            "       rồi dán dòng .env mà nó in ra.",
+        )
+        return 1
+
     available: List[str] = []
     try:
-        available = [m.id for m in client.models.list().data]
+        # Gemini liệt kê id dạng "models/gemini-..." -> chuẩn hoá để so sánh được
+        available = [normalize_model_id(m.id) for m in client.models.list().data]
         if args.list_models:
             for mid in available:
                 print(f"       • {mid}")
@@ -308,7 +420,7 @@ def main() -> int:
 
     outcomes: Dict[str, Dict[str, bool]] = {}
     for model in to_check:
-        outcomes[model] = probe_model(client, model, " + ".join(roles[model]))
+        outcomes[model] = probe_model(client, model, " + ".join(roles[model]), gemini=is_google)
 
     # ---- 4. Cross-model -----------------------------------------------------
     print()

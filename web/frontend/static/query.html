@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<!--
+  web/frontend/static/query.html — Web SQL Explorer & Data Studio
+  DBeaver / DataGrip style client for DuckDB
+  OpenDesign Dark Mode (Tailwind CSS CDN + JetBrains Mono)
+-->
+<html lang="vi" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Studio · DuckDB SQL Explorer</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: { DEFAULT: '#080C14', 1: '#0F172A', 2: '#1E293B', 3: '#334155' },
+            emerald: { glow: '#10B981' },
+            rose: { pulse: '#F43F5E' },
+            amber: { accent: '#F59E0B' },
+            cyan: { accent: '#06B6D4' },
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Cascadia Code', 'Consolas', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body {
+      background-color: #080C14;
+      background-image:
+        radial-gradient(ellipse 60% 40% at 50% -10%, rgba(6,182,212,0.05) 0%, transparent 60%),
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+      background-size: 100% 100%, 36px 36px, 36px 36px;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(12px);
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+    /* DBeaver Spreadsheet styling */
+    .grid-table th {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #0B1120;
+    }
+    .grid-table tr:hover td {
+      background-color: rgba(6, 182, 212, 0.04);
+    }
+    .grid-table td.row-num {
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      background: #0D1527;
+    }
+    .grid-table th.col-num {
+      position: sticky;
+      left: 0;
+      top: 0;
+      z-index: 20;
+      background: #090E1A;
+    }
+
+    button, a, input, select, textarea {
+      transition-property: color, background-color, border-color, box-shadow, opacity;
+      transition-duration: 150ms;
+    }
+  </style>
+</head>
+
+<body class="font-sans text-slate-200 flex flex-col h-screen select-none">
+
+  <!-- ============================================================ -->
+  <!-- TOPBAR                                                        -->
+  <!-- ============================================================ -->
+  <header class="glass-card border-b border-white/10 px-4 py-2.5 flex items-center justify-between shrink-0 z-30">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">⚡</span>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm font-bold tracking-tight text-white">DATA STUDIO</h1>
+          <span class="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-cyan-accent/10 text-cyan-accent border border-cyan-accent/20">SQL Explorer</span>
+        </div>
+        <div class="flex items-center gap-2 mt-0.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-glow"></span>
+          <span class="text-[11px] font-mono text-slate-400">DuckDB OLAP · warehouse.duckdb</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation links -->
+    <div class="flex items-center gap-2">
+      <a href="/" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-surface-2/80 text-slate-300 border border-white/10 hover:bg-surface-3 hover:text-white">
+        <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i> Dashboard
+      </a>
+      <a href="/lineage" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-surface-2/80 text-slate-300 border border-white/10 hover:bg-surface-3 hover:text-white">
+        <i data-lucide="git-branch" class="w-3.5 h-3.5"></i> Lineage DAG
+      </a>
+      <a href="/chat" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-accent/10 text-cyan-accent border border-cyan-accent/30 hover:bg-cyan-accent/20">
+        <i data-lucide="bot" class="w-3.5 h-3.5"></i> HITL War Room
+      </a>
+    </div>
+  </header>
+
+  <!-- ============================================================ -->
+  <!-- MAIN WORKSPACE: 2 Columns                                     -->
+  <!-- ============================================================ -->
+  <div class="flex-1 flex min-h-0 overflow-hidden">
+
+    <!-- ========================================================== -->
+    <!-- LEFT SIDEBAR: Database Navigator / Schema Tree             -->
+    <!-- ========================================================== -->
+    <aside class="w-72 glass-card border-r border-white/10 flex flex-col shrink-0 bg-surface-1/50">
+      <!-- Search & Refresh -->
+      <div class="p-3 border-b border-white/10 flex items-center gap-2">
+        <div class="relative flex-1">
+          <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500"></i>
+          <input id="schema-search" type="text" placeholder="Tìm bảng, cột..." class="w-full bg-surface-2/80 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-cyan-accent/40" />
+        </div>
+        <button id="btn-refresh-schema" title="Tải lại Schema" class="p-1.5 rounded-lg bg-surface-2/80 border border-white/10 hover:bg-surface-3 text-slate-400 hover:text-white">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+
+      <!-- Tree Header -->
+      <div class="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between border-b border-white/5">
+        <div class="flex items-center gap-1.5">
+          <i data-lucide="database" class="w-3 h-3 text-cyan-accent"></i>
+          <span>Database Navigator</span>
+        </div>
+        <span id="tables-count" class="text-[10px] text-slate-600 font-mono">0 tables</span>
+      </div>
+
+      <!-- Schema Tree List -->
+      <div id="schema-tree" class="flex-1 overflow-auto p-2 space-y-1 text-xs select-none">
+        <div class="p-4 text-center text-slate-500 text-xs">Đang tải cấu trúc bảng...</div>
+      </div>
+
+      <!-- Quick Info Footer -->
+      <div class="p-2.5 border-t border-white/10 text-[10px] text-slate-500 bg-surface-1/80 flex items-center justify-between">
+        <span>Click để xem · Double-click để Query</span>
+        <span class="font-mono text-cyan-accent">DuckDB</span>
+      </div>
+    </aside>
+
+    <!-- ========================================================== -->
+    <!-- RIGHT MAIN AREA: SQL Editor + Result Grid                  -->
+    <!-- ========================================================== -->
+    <main class="flex-1 flex flex-col min-w-0 bg-[#080C14]">
+
+      <!-- ======================================================== -->
+      <!-- TOP: SQL EDITOR PANEL                                     -->
+      <!-- ======================================================== -->
+      <div class="h-64 flex flex-col border-b border-white/10 bg-[#0A0F1D]">
+
+        <!-- Editor Toolbar -->
+        <div class="px-4 py-2 border-b border-white/10 flex items-center justify-between gap-3 bg-surface-1/60 shrink-0 flex-wrap">
+          <div class="flex items-center gap-2">
+            <!-- Run Query Button -->
+            <button id="btn-run-query" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-glow to-emerald-500 text-white shadow-md shadow-emerald-glow/20 hover:shadow-emerald-glow/40 active:scale-95">
+              <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i> Run (Ctrl+Enter)
+            </button>
+
+            <!-- Templates Dropdown -->
+            <div class="relative">
+              <select id="query-template-select" class="bg-surface-2/80 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 outline-none hover:border-white/20 focus:border-cyan-accent/40 cursor-pointer">
+                <option value="">⚡ Mẫu truy vấn nhanh...</option>
+                <option value="SELECT * FROM stg_orders LIMIT 50;">📋 SELECT * FROM stg_orders LIMIT 50</option>
+                <option value="SELECT * FROM stg_orders WHERE customer_id IS NULL;">🔴 Tìm bản ghi NULL customer_id (stg_orders)</option>
+                <option value="SELECT * FROM quarantine_orders;">🛡️ Xem bảng cách ly (quarantine_orders)</option>
+                <option value="SELECT * FROM fact_orders ORDER BY order_date DESC LIMIT 50;">📦 SELECT * FROM fact_orders LIMIT 50</option>
+                <option value="SELECT * FROM dim_customers LIMIT 50;">👥 SELECT * FROM dim_customers LIMIT 50</option>
+                <option value="SELECT * FROM mart_daily_revenue ORDER BY order_date DESC LIMIT 30;">💰 Doanh thu theo ngày (mart_daily_revenue)</option>
+                <option value="SELECT * FROM mart_customer_ltv ORDER BY total_spend DESC LIMIT 30;">⭐ Top khách hàng LTV (mart_customer_ltv)</option>
+                <option value="SELECT job_id, status, duration_ms, started_at, message FROM pipeline_runs ORDER BY started_at DESC LIMIT 20;">⏱️ Lịch sử chạy pipeline (pipeline_runs)</option>
+              </select>
+            </div>
+
+            <!-- Clear -->
+            <button id="btn-clear-query" class="p-1.5 rounded-lg bg-surface-2/60 border border-white/10 text-slate-400 hover:text-white hover:bg-surface-3" title="Xoá Query">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <!-- Row Limit -->
+            <div class="flex items-center gap-1.5 text-xs text-slate-400">
+              <span>Limit:</span>
+              <select id="query-limit-select" class="bg-surface-2/80 border border-white/10 rounded-lg px-2 py-1 text-xs text-slate-300 outline-none">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+              </select>
+            </div>
+
+            <!-- Export CSV -->
+            <button id="btn-export-csv" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-surface-2/80 border border-white/10 text-slate-300 hover:bg-surface-3 hover:text-white">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- SQL Codearea -->
+        <div class="flex-1 relative flex overflow-hidden">
+          <textarea id="sql-editor" spellcheck="false" class="w-full h-full p-4 bg-[#070A12] text-emerald-glow font-mono text-xs leading-relaxed resize-none outline-none border-0 selection:bg-emerald-glow/30" placeholder="-- Nhập câu lệnh SQL chỉ-đọc (SELECT, SHOW, DESCRIBE)...
+-- Bấm Ctrl + Enter hoặc nút Run để thực thi.
+SELECT * FROM stg_orders LIMIT 50;"></textarea>
+        </div>
+      </div>
+
+      <!-- ======================================================== -->
+      <!-- BOTTOM: DATA GRID / SPREADSHEET RESULT                     -->
+      <!-- ======================================================== -->
+      <div class="flex-1 flex flex-col min-h-0 bg-[#060911]">
+
+        <!-- Status / Execution Bar -->
+        <div class="px-4 py-2 border-b border-white/10 bg-surface-1/80 flex items-center justify-between text-xs shrink-0">
+          <div class="flex items-center gap-3">
+            <span class="font-semibold text-slate-400 uppercase tracking-wider text-[10px]">Query Results</span>
+            <span id="result-status-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-surface-2 text-slate-400">Ready</span>
+            <span id="result-count" class="text-slate-400 font-mono text-[11px]"></span>
+          </div>
+          <div class="flex items-center gap-4 text-slate-500 text-[11px] font-mono">
+            <span id="result-time"></span>
+            <span id="copy-toast" class="hidden text-emerald-glow">✓ Copied to clipboard</span>
+          </div>
+        </div>
+
+        <!-- Spreadsheet Grid Container -->
+        <div class="flex-1 overflow-auto relative select-text" id="grid-container">
+          <div id="empty-state" class="flex flex-col items-center justify-center h-full py-16 text-center text-slate-500">
+            <div class="w-12 h-12 rounded-xl bg-surface-2/60 border border-white/10 flex items-center justify-center mb-3">
+              <i data-lucide="table" class="w-6 h-6 text-slate-600"></i>
+            </div>
+            <p class="text-xs font-medium text-slate-400">Chưa có kết quả truy vấn</p>
+            <p class="text-[11px] text-slate-600 mt-1">Soạn câu lệnh SQL và bấm Run (Ctrl + Enter) để xem dữ liệu</p>
+          </div>
+
+          <table id="result-table" class="grid-table w-full text-xs font-mono hidden border-collapse text-slate-300">
+            <thead id="grid-head"></thead>
+            <tbody id="grid-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- SCRIPT LOGIC                                                 -->
+  <!-- ============================================================ -->
+  <script>
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  let currentTablesData = [];
+  let lastQueryResults = null;
+
+  // Escaping
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]
+    );
+  }
+
+  // Load Schema
+  async function loadSchema() {
+    $('tables-count').textContent = 'Loading...';
+    try {
+      const res = await fetch('/api/sql/tables');
+      if (!res.ok) throw new Error(res.statusText);
+      currentTablesData = await res.json();
+      renderSchemaTree(currentTablesData);
+    } catch (err) {
+      $('schema-tree').innerHTML = `<div class="p-3 text-rose-pulse text-xs">Lỗi tải schema: ${esc(err.message)}</div>`;
+    }
+  }
+
+  function renderSchemaTree(tables, filterText = '') {
+    const q = filterText.toLowerCase().trim();
+    const filtered = tables.filter(t =>
+      t.name.toLowerCase().includes(q) ||
+      (t.columns || []).some(c => (c.name || '').toLowerCase().includes(q))
+    );
+
+    $('tables-count').textContent = `${filtered.length} tables`;
+
+    if (!filtered.length) {
+      $('schema-tree').innerHTML = `<div class="p-4 text-center text-slate-500 text-xs">Không tìm thấy bảng khớp "${esc(filterText)}"</div>`;
+      return;
+    }
+
+    $('schema-tree').innerHTML = filtered.map(t => {
+      const isQuarantine = t.name.includes('quarantine');
+      const isMart = t.name.startsWith('mart_');
+      const isStaging = t.name.startsWith('stg_');
+      const badgeColor = isQuarantine ? 'bg-amber-accent/15 text-amber-accent border-amber-accent/30' :
+                         isMart ? 'bg-cyan-accent/15 text-cyan-accent border-cyan-accent/30' :
+                         isStaging ? 'bg-purple-500/15 text-purple-400 border-purple-500/30' :
+                         'bg-surface-2 text-slate-400 border-white/10';
+
+      const colsHtml = (t.columns || []).map(c => `
+        <div class="flex items-center justify-between py-1 px-2.5 rounded hover:bg-white/[0.04] text-[11px] text-slate-400 group">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-600 group-hover:bg-cyan-accent"></span>
+            <span class="font-mono text-slate-300">${esc(c.name)}</span>
+          </div>
+          <span class="text-[9px] font-mono text-slate-600 uppercase">${esc(c.type || '')}</span>
+        </div>
+      `).join('');
+
+      return `
+        <div class="table-node rounded-lg border border-transparent hover:border-white/5 bg-surface-1/40 overflow-hidden mb-1">
+          <div class="table-header flex items-center justify-between px-2.5 py-2 cursor-pointer hover:bg-white/[0.03]" data-table="${esc(t.name)}">
+            <div class="flex items-center gap-2 truncate">
+              <i data-lucide="table" class="w-3.5 h-3.5 text-cyan-accent shrink-0"></i>
+              <span class="font-semibold text-slate-200 truncate font-mono text-xs">${esc(t.name)}</span>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <span class="px-1.5 py-0.5 rounded text-[9px] font-mono border ${badgeColor}">
+                ${t.row_count != null ? t.row_count.toLocaleString() : '—'}
+              </span>
+              <i data-lucide="chevron-right" class="w-3 h-3 text-slate-600 transition-transform chevron"></i>
+            </div>
+          </div>
+          <div class="table-columns hidden pl-3 pr-1 py-1 space-y-0.5 border-t border-white/5 bg-[#070B14]">
+            ${colsHtml || '<div class="py-1 text-slate-600 text-[10px]">Không có metadata cột</div>'}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    lucide.createIcons();
+
+    // Event listeners for table nodes
+    document.querySelectorAll('.table-header').forEach(header => {
+      // Single click: toggle collapse
+      header.addEventListener('click', (e) => {
+        const node = header.closest('.table-node');
+        const cols = node.querySelector('.table-columns');
+        const chevron = node.querySelector('.chevron');
+        const isHidden = cols.classList.contains('hidden');
+        cols.classList.toggle('hidden', !isHidden);
+        chevron.style.transform = isHidden ? 'rotate(90deg)' : 'none';
+      });
+
+      // Double click: insert query
+      header.addEventListener('dblclick', () => {
+        const tbl = header.dataset.table;
+        const limit = $('query-limit-select').value;
+        $('sql-editor').value = `SELECT * FROM ${tbl} LIMIT ${limit};`;
+        runQuery();
+      });
+    });
+  }
+
+  // Execute SQL Query
+  async function runQuery() {
+    const query = $('sql-editor').value.trim();
+    if (!query) return;
+
+    const limit = parseInt($('query-limit-select').value) || 100;
+    const btn = $('btn-run-query');
+    btn.disabled = true;
+    btn.classList.add('opacity-70');
+
+    $('result-status-badge').textContent = 'Executing...';
+    $('result-status-badge').className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-accent/20 text-cyan-accent border border-cyan-accent/30';
+    $('result-count').textContent = '';
+    $('result-time').textContent = '—';
+
+    const t0 = performance.now();
+
+    try {
+      const res = await fetch('/api/sql/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, limit }),
+      });
+
+      const data = await res.json();
+      const elapsed = Math.round(performance.now() - t0);
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || res.statusText);
+      }
+
+      lastQueryResults = data;
+      renderGrid(data);
+
+      $('result-status-badge').textContent = 'SUCCESS';
+      $('result-status-badge').className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-glow/20 text-emerald-glow border border-emerald-glow/30';
+      $('result-count').textContent = `${data.returned_rows || data.row_count || 0} rows ${data.truncated ? '(truncated)' : ''}`;
+      $('result-time').textContent = `${elapsed} ms`;
+
+    } catch (err) {
+      $('empty-state').classList.remove('hidden');
+      $('result-table').classList.add('hidden');
+      $('empty-state').innerHTML = `
+        <div class="max-w-md p-4 rounded-xl bg-rose-pulse/10 border border-rose-pulse/30 text-left">
+          <div class="flex items-center gap-2 text-rose-pulse font-semibold text-xs mb-1">
+            <i data-lucide="alert-octagon" class="w-4 h-4"></i> Query Error
+          </div>
+          <div class="text-slate-300 font-mono text-[11px] leading-relaxed break-words">${esc(err.message)}</div>
+        </div>
+      `;
+      lucide.createIcons();
+
+      $('result-status-badge').textContent = 'ERROR';
+      $('result-status-badge').className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-rose-pulse/20 text-rose-pulse border border-rose-pulse/30';
+      $('result-time').textContent = `${Math.round(performance.now() - t0)} ms`;
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('opacity-70');
+    }
+  }
+
+  // Render Spreadsheet Grid
+  function renderGrid(data) {
+    const columns = data.columns || [];
+    const rows = data.rows || [];
+
+    if (!columns.length) {
+      $('empty-state').classList.remove('hidden');
+      $('result-table').classList.add('hidden');
+      $('empty-state').innerHTML = `<p class="text-xs text-slate-500">Câu lệnh thành công nhưng không trả về dữ liệu (0 columns).</p>`;
+      return;
+    }
+
+    $('empty-state').classList.add('hidden');
+    $('result-table').classList.remove('hidden');
+
+    // Header
+    $('grid-head').innerHTML = `
+      <tr>
+        <th class="col-num px-3 py-2 text-[10px] font-mono text-slate-500 border-b border-r border-white/10 text-center w-12">#</th>
+        ${columns.map(col => `
+          <th class="px-3.5 py-2 text-left text-[11px] font-semibold text-slate-300 border-b border-r border-white/10 whitespace-nowrap">
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono">${esc(col)}</span>
+            </div>
+          </th>
+        `).join('')}
+      </tr>
+    `;
+
+    // Rows
+    $('grid-body').innerHTML = rows.map((r, idx) => `
+      <tr class="hover:bg-white/[0.02]">
+        <td class="row-num px-3 py-1.5 text-[10px] font-mono text-slate-600 border-b border-r border-white/10 text-center">${idx + 1}</td>
+        ${columns.map(col => {
+          const val = r[col];
+          const isNull = val === null || val === undefined;
+          return `
+            <td class="px-3.5 py-1.5 border-b border-r border-white/5 whitespace-nowrap cell-val cursor-pointer" title="Click to copy">
+              ${isNull ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-pulse/15 text-rose-pulse border border-rose-pulse/20">NULL</span>' : esc(val)}
+            </td>
+          `;
+        }).join('')}
+      </tr>
+    `).join('') || `<tr><td colspan="${columns.length + 1}" class="p-8 text-center text-slate-500">0 rows returned</td></tr>`;
+
+    // Click to copy cell
+    document.querySelectorAll('.cell-val').forEach(td => {
+      td.addEventListener('click', () => {
+        const txt = td.textContent.trim();
+        navigator.clipboard.writeText(txt);
+        const toast = $('copy-toast');
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 1500);
+      });
+    });
+  }
+
+  // Export CSV
+  function exportCSV() {
+    if (!lastQueryResults || !lastQueryResults.rows || !lastQueryResults.rows.length) {
+      alert('Không có dữ liệu để xuất CSV!');
+      return;
+    }
+    const cols = lastQueryResults.columns;
+    const rows = lastQueryResults.rows;
+
+    let csv = cols.map(c => `"${c.replace(/"/g, '""')}"`).join(',') + '\n';
+    rows.forEach(r => {
+      csv += cols.map(c => {
+        const val = r[c] ?? '';
+        return `"${String(val).replace(/"/g, '""')}"`;
+      }).join(',') + '\n';
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `duckdb_query_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Init
+  document.addEventListener('DOMContentLoaded', () => {
+    lucide.createIcons();
+    loadSchema();
+
+    // Run button
+    $('btn-run-query').addEventListener('click', runQuery);
+
+    // Ctrl + Enter shortcut
+    $('sql-editor').addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        runQuery();
+      }
+    });
+
+    // Template select
+    $('query-template-select').addEventListener('change', (e) => {
+      if (e.target.value) {
+        $('sql-editor').value = e.target.value;
+        runQuery();
+      }
+    });
+
+    // Clear
+    $('btn-clear-query').addEventListener('click', () => {
+      $('sql-editor').value = '';
+      $('sql-editor').focus();
+    });
+
+    // Refresh Schema
+    $('btn-refresh-schema').addEventListener('click', loadSchema);
+
+    // Schema Search
+    $('schema-search').addEventListener('input', (e) => {
+      renderSchemaTree(currentTablesData, e.target.value);
+    });
+
+    // Export CSV
+    $('btn-export-csv').addEventListener('click', exportCSV);
+
+    // Run initial default query
+    runQuery();
+  });
+  </script>
+</body>
+</html>

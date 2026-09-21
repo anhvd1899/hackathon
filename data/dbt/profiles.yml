@@ -1,9 +1,12 @@
 # Profile dbt-duckdb tro vao CUNG file warehouse ma Python dang dung.
-# Duong dan lay tu bien moi truong DRA_DUCKDB_PATH (xem config.py), fallback la
-# file warehouse.duckdb nam canh package data/.
 #
-# LUU Y: DuckDB chi cho 1 tien trinh GHI vao file cung luc. Hay TAT web server
-# truoc khi chay `dbt run` / `dbt test`, neu khong se gap loi file lock.
+# Duong dan lay tu bien moi truong DRA_DUCKDB_PATH (xem config.py). Khong hardcode de
+# chay duoc ca o local, trong Docker, va trong CI.
+#
+# LUU Y QUAN TRONG: DuckDB chi cho 1 tien trinh GHI vao file cung luc. Khi web server
+# dang chay, dung goi `dbt` truc tiep tu terminal — hay dung
+# `POST /api/dbt/run` hoac `python -m data.jobs.run_dbt`, cac duong nay tu dong
+# dong connection dung chung truoc khi goi dbt (xem data/dbt_runner.py).
 data_reliability:
   target: dev
   outputs:

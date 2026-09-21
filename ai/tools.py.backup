@@ -194,18 +194,9 @@ _WRITE_PREFIXES = (
     "begin", "commit", "rollback", "set", "pragma", "analyze", "checkpoint",
 )
 _PROTECTED_TABLES = {
-    # --- fact / dim ---
-    "fact_orders", "dim_customers",
-    # --- staging ---
-    "stg_orders", "stg_customers",
-    # --- mart ---
-    "mart_daily_revenue", "mart_customer_ltv",
-    "mart_revenue_by_region", "mart_order_quality",
-    # --- hệ thống DQ / audit ---
-    "dq_test_results", "agent_audit_log", "dq_baseline_snapshot",
+    "fact_orders", "dim_customers", "dq_test_results",
+    "agent_audit_log", "dq_baseline_snapshot",
 }
-# Các bảng tạm (shadow, quarantine, temp) KHÔNG được bảo vệ khỏi DROP
-_TEMP_PREFIXES = ("shadow_", "quarantine_", "temp_")
 
 
 def _strip_sql_comments(sql: str) -> str:
@@ -1677,7 +1668,7 @@ def _generate_universal_remediation_strategy(
         "approach": "quarantine_and_investigate",
         "steps": ["Quarantine all violation records", "Manual investigation required"],
         "sql_statements": [
-            f"CREATE OR REPLACE TABLE quarantine_{table} AS SELECT *, 'UNKNOWN_VIOLATION'::VARCHAR AS quarantine_reason, CURRENT_TIMESTAMP AS quarantined_at FROM {table} WHERE 1=0"
+            f"CREATE TABLE IF NOT EXISTS quarantine_{table} AS SELECT *, 'UNKNOWN_VIOLATION' as quarantine_reason, now() as quarantined_at FROM {table} WHERE 1=0"
         ],
         "risk_level": "HIGH",
         "estimated_affected_rows": len(sample_violations),
@@ -1740,14 +1731,15 @@ def _generate_strategy_from_test_name(table: str, test_name: str, schema_info: D
                     "approach": "quarantine_null_values",
                     "steps": [f"Quarantine records with NULL {col}", f"Delete NULL records"],
                     "sql_statements": [
-                        f"CREATE OR REPLACE TABLE quarantine_{table} AS SELECT *, 'NULL_{col.upper()}'::VARCHAR AS quarantine_reason, CURRENT_TIMESTAMP AS quarantined_at FROM {table} WHERE {col} IS NULL",
+                        f"CREATE TABLE IF NOT EXISTS quarantine_{table} AS SELECT *, 'NULL_{col.upper()}' as quarantine_reason, now() as quarantined_at FROM {table} WHERE 1=0",
+                        f"INSERT INTO quarantine_{table} SELECT *, 'NULL_{col.upper()}', now() FROM {table} WHERE {col} IS NULL",
                         f"DELETE FROM {table} WHERE {col} IS NULL"
                     ],
                     "risk_level": "MEDIUM",
                     "verification_sql": f"SELECT COUNT(*) FROM {table} WHERE {col} IS NULL",
                     "rollback_plan": f"INSERT INTO {table} SELECT * EXCLUDE (quarantine_reason, quarantined_at) FROM quarantine_{table}"
                 }
-
+    
     elif "unique" in test_name.lower():
         # Find likely duplicate column
         key_cols = [col["column_name"] for col in schema_info.get("columns", []) 
@@ -1758,7 +1750,11 @@ def _generate_strategy_from_test_name(table: str, test_name: str, schema_info: D
                 "approach": "deduplicate_records", 
                 "steps": [f"Identify duplicates in {col}", "Keep first occurrence", "Quarantine duplicates"],
                 "sql_statements": [
-                    f"CREATE OR REPLACE TABLE quarantine_{table} AS SELECT *, 'DUPLICATE_{col.upper()}'::VARCHAR AS quarantine_reason, CURRENT_TIMESTAMP AS quarantined_at FROM {table} WHERE {col} IN (SELECT {col} FROM {table} GROUP BY {col} HAVING COUNT(*) > 1) AND rowid NOT IN (SELECT MIN(rowid) FROM {table} GROUP BY {col})",
+                    f"CREATE TABLE IF NOT EXISTS quarantine_{table} AS SELECT *, 'DUPLICATE_{col.upper()}' as quarantine_reason, now() as quarantined_at FROM {table} WHERE 1=0",
+                    f"""INSERT INTO quarantine_{table} 
+                        SELECT *, 'DUPLICATE_{col.upper()}', now() FROM {table} 
+                        WHERE {col} IN (SELECT {col} FROM {table} GROUP BY {col} HAVING COUNT(*) > 1)
+                        AND rowid NOT IN (SELECT MIN(rowid) FROM {table} GROUP BY {col})""",
                     f"""DELETE FROM {table} WHERE {col} IN (SELECT {col} FROM {table} GROUP BY {col} HAVING COUNT(*) > 1)
                         AND rowid NOT IN (SELECT MIN(rowid) FROM {table} GROUP BY {col})"""
                 ],
@@ -1772,7 +1768,7 @@ def _generate_strategy_from_test_name(table: str, test_name: str, schema_info: D
         "approach": "generic_quarantine",
         "steps": ["Generic quarantine approach - requires manual review"],
         "sql_statements": [
-            f"CREATE OR REPLACE TABLE quarantine_{table} AS SELECT *, 'GENERIC_VIOLATION'::VARCHAR AS quarantine_reason, CURRENT_TIMESTAMP AS quarantined_at FROM {table} WHERE 1=0"
+            f"CREATE TABLE IF NOT EXISTS quarantine_{table} AS SELECT *, 'GENERIC_VIOLATION' as quarantine_reason, now() as quarantined_at FROM {table} WHERE 1=0"
         ],
         "risk_level": "HIGH",
         "verification_sql": f"SELECT COUNT(*) FROM {table}",
@@ -1789,7 +1785,8 @@ def _generate_strategy_from_pattern(table: str, pattern: Dict[str, Any], schema_
             "approach": "quarantine_null_values",
             "steps": [f"Quarantine NULL {col} records", "Remove NULL values"],
             "sql_statements": [
-                f"CREATE OR REPLACE TABLE quarantine_{table} AS SELECT *, 'NULL_{col.upper()}'::VARCHAR AS quarantine_reason, CURRENT_TIMESTAMP AS quarantined_at FROM {table} WHERE {col} IS NULL",
+                f"CREATE TABLE IF NOT EXISTS quarantine_{table} AS SELECT *, 'NULL_{col.upper()}' as quarantine_reason, now() as quarantined_at FROM {table} WHERE 1=0",
+                f"INSERT INTO quarantine_{table} SELECT *, 'NULL_{col.upper()}', now() FROM {table} WHERE {col} IS NULL",
                 f"DELETE FROM {table} WHERE {col} IS NULL"
             ],
             "risk_level": "MEDIUM",
@@ -1804,7 +1801,8 @@ def _generate_strategy_from_pattern(table: str, pattern: Dict[str, Any], schema_
             "approach": "quarantine_negative_values",
             "steps": [f"Quarantine negative {col} records", "Remove negative values"],
             "sql_statements": [
-                f"CREATE OR REPLACE TABLE quarantine_{table} AS SELECT *, 'NEGATIVE_{col.upper()}'::VARCHAR AS quarantine_reason, CURRENT_TIMESTAMP AS quarantined_at FROM {table} WHERE {col} < 0",
+                f"CREATE TABLE IF NOT EXISTS quarantine_{table} AS SELECT *, 'NEGATIVE_{col.upper()}' as quarantine_reason, now() as quarantined_at FROM {table} WHERE 1=0",
+                f"INSERT INTO quarantine_{table} SELECT *, 'NEGATIVE_{col.upper()}', now() FROM {table} WHERE {col} < 0",
                 f"DELETE FROM {table} WHERE {col} < 0"
             ],
             "risk_level": "MEDIUM",
@@ -1818,7 +1816,7 @@ def _generate_strategy_from_pattern(table: str, pattern: Dict[str, Any], schema_
         "approach": "pattern_based_quarantine",
         "steps": [f"Quarantine {pattern['type']} violations"],
         "sql_statements": [
-            f"CREATE OR REPLACE TABLE quarantine_{table} AS SELECT *, '{pattern['type'].upper()}'::VARCHAR AS quarantine_reason, CURRENT_TIMESTAMP AS quarantined_at FROM {table} WHERE 1=0"
+            f"CREATE TABLE IF NOT EXISTS quarantine_{table} AS SELECT *, '{pattern['type'].upper()}' as quarantine_reason, now() as quarantined_at FROM {table} WHERE 1=0"
         ],
         "risk_level": "MEDIUM",
         "estimated_affected_rows": pattern.get("violation_count", 0),
@@ -1853,7 +1851,7 @@ def tool_generate_dynamic_remediation_sql(
     wap_script_parts = [
         f"-- Dynamic remediation for {table} (Auto-generated)",
         f"CREATE OR REPLACE TABLE {shadow_table} AS SELECT * FROM {table};",
-        f"CREATE OR REPLACE TABLE {quarantine_table} AS SELECT *, CAST(NULL AS VARCHAR) AS quarantine_reason, CAST(NULL AS TIMESTAMP) AS quarantined_at FROM {table} WHERE 1=0;"
+        f"CREATE TABLE IF NOT EXISTS {quarantine_table} AS SELECT *, CAST(NULL AS VARCHAR) AS quarantine_reason, CAST(NULL AS TIMESTAMP) AS quarantined_at FROM {table} WHERE 1=0;"
     ]
     
     # Add remediation SQL adapted for shadow table

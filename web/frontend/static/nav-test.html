@@ -1,0 +1,24 @@
+﻿<!DOCTYPE html>
+<html>
+<head><title>Navigation Test</title></head>
+<body>
+<h1>Navigation Debug Test</h1>
+<button onclick="testSwitchView()">Test switchView Function</button>
+<div id="result"></div>
+
+<script>
+function switchView(target) {
+    console.log('switchView called with:', target);
+    document.getElementById('result').innerHTML += '<br>switchView(' + target + ') called';
+    return true;
+}
+
+function testSwitchView() {
+    console.log('Testing switchView...');
+    switchView('dag');
+    switchView('sql');
+    switchView('hub');
+}
+</script>
+</body>
+</html>

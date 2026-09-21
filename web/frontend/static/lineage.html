@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<!--
+  web/frontend/static/lineage.html — nhúng dbt docs (Lineage Graph DAG) vào app.
+
+  dbt docs là một SPA do `dbt docs generate` sinh ra ở data/dbt/target/index.html,
+  được server mount tại /dbt-docs. Trang này chỉ bọc nó trong iframe + thêm thanh
+  điều hướng, nên toàn bộ tính năng gốc (DAG, search, column-level docs) giữ nguyên.
+-->
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lineage Graph · dbt docs</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .frame-wrap { flex: 1; min-height: 0; background: #fff; }
+    iframe { width: 100%; height: 100%; border: 0; display: block; }
+    .stats { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+    .notice { padding: 20px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🔗</span>
+      <div>
+        <h1>Lineage Graph (dbt DAG)</h1>
+        <p class="sub" id="dag-sub">đang tải manifest…</p>
+      </div>
+    </div>
+    <div class="topbar-right stats">
+      <button class="btn ghost" id="btn-docs">🔄 Sinh lại docs</button>
+      <a class="btn ghost" href="/dbt-docs/index.html" target="_blank" rel="noopener">↗ Mở tab mới</a>
+      <a class="btn" href="/">← Dashboard</a>
+    </div>
+  </header>
+
+  <div class="frame-wrap" id="frame-wrap">
+    <iframe id="dbt-frame" title="dbt docs lineage graph" src="/dbt-docs/index.html"></iframe>
+  </div>
+
+  <script>
+    (async function () {
+      const sub = document.getElementById("dag-sub");
+      try {
+        const res = await fetch("/api/dbt/status");
+        const s = await res.json();
+        sub.textContent = s.available
+          ? `${s.models} model · ${s.sources} source · ${s.tests} test · layer: ${(s.layers || []).join(", ")}`
+            + (s.generated_at ? ` · sinh lúc ${new Date(s.generated_at).toLocaleString("vi-VN")}` : "")
+          : "chưa có manifest — bấm “Sinh lại docs”";
+        if (!s.docs_ready) {
+          document.getElementById("frame-wrap").innerHTML =
+            '<div class="notice"><div class="banner warn">' +
+            "Chưa có <code>dbt docs</code>. Bấm <strong>Sinh lại docs</strong> ở trên, " +
+            "hoặc chạy <code>python -m data.jobs.run_dbt --docs</code>.</div></div>";
+        }
+      } catch (err) {
+        sub.textContent = "không lấy được trạng thái dbt: " + err.message;
+      }
+
+      document.getElementById("btn-docs").addEventListener("click", async (event) => {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = "⏳ đang sinh…";
+        try {
+          await fetch("/api/dbt/docs", { method: "POST" });
+          location.reload();
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = "🔄 Sinh lại docs";
+          alert("Lỗi: " + err.message);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

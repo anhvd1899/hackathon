@@ -254,25 +254,14 @@ def _wap_view(incident_id: str) -> Dict[str, Any]:
     row = incident_store.get_incident(incident_id) or {}
     status = str(row.get("status") or "")
     session = wap.get_session(incident_id) or {}
-    prod_table = str(session.get("prod_table") or row.get("target_table") or "")
-    shadow_table = str(row.get("shadow_table") or session.get("shadow_table") or "")
-    # Coherence: BẢNG BÓNG bắt buộc thuộc đúng bảng mục tiêu của incident
-    # (shadow_<target>). Shadow sót từ incident/bảng khác sẽ hiện sai diff +
-    # preview nên loại bỏ để UI hiện "(chưa dựng)" thay vì số liệu bảng lạ.
-    if shadow_table:
-        core = wap.bare_name(shadow_table)
-        if core.lower().startswith("shadow_"):
-            core = core[len("shadow_"):]
-        if core.lower() != wap.bare_name(prod_table).lower():
-            shadow_table = ""
     return {
         "incident_id": incident_id,
         "status": status,
         "status_label": STATUS_LABEL.get(status, status),
         "status_icon": STATUS_ICON.get(status, "•"),
         "next_actions": incident_store.next_actions(status),
-        "shadow_table": shadow_table,
-        "prod_table": prod_table,
+        "shadow_table": row.get("shadow_table") or session.get("shadow_table") or "",
+        "prod_table": session.get("prod_table") or row.get("target_table") or "",
         "retry_count": int(row.get("retry_count") or 0),
         "max_replan": MAX_REPLAN_ATTEMPTS,
         "ready_for_production": bool(row.get("ready_for_production")),

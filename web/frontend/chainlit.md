@@ -23,13 +23,21 @@ bắt lỗi. Model nào đã nghiệm thu được ghi vào `auditor_model` củ
    - *Lỗi tập trung ở nguồn nào?*
    - *Nếu xoá thì doanh thu giảm bao nhiêu?*
 4. ✅ Bấm **Duyệt Remediation** → Agent 1 thực thi + tự verify.
-5. 🕵️‍♀️ **Agent 2 tự động vào nghiệm thu độc lập**, tự viết SQL kiểm 3 việc:
+5. 🤔 **Anh chọn: recheck hay chốt luôn?** (human-in-the-loop thứ hai)
+   - 🕵️‍♀️ **Recheck độc lập** → Agent 2 vào kiểm. Nên chọn khi lỗi phức tạp, ảnh hưởng
+     mart/dashboard, hoặc cần bằng chứng nghiệm thu.
+   - ⚡ **Chốt luôn** → đóng incident ngay, không tốn thêm thời gian/token. Nên chọn khi
+     lỗi đơn giản anh đã biết rõ. Quyết định bỏ qua được ghi vào `agent_audit_log`.
+   - Nếu Agent 1 **vá thất bại**, nút "chốt luôn" bị khoá — đóng incident khi vi phạm còn
+     tồn tại là che lỗi.
+6. 🧾 Nếu recheck: Agent 2 tự viết SQL kiểm 3 việc rồi cấp biên bản
+   `AUDIT_PASSED` / `AUDIT_FAILED`:
    - 🧼 **Cleanliness** — bảng chính còn dòng vi phạm không? (kỳ vọng 0)
    - 🧊 **Data Preservation** — số dòng vào `quarantine_*` có khớp số lỗi ban đầu không?
      (bảo đảm không xoá oan)
    - 🧮 **Row Count Integrity** — tổng số dòng có được bảo toàn không?
-6. 🧾 Nhận biên bản `AUDIT_PASSED` / `AUDIT_FAILED`. Câu hỏi có chữ *nghiệm thu*, *audit*,
-   *mất dữ liệu*… sẽ được chuyển cho Agent 2 trả lời.
+7. 💬 Câu hỏi có chữ *nghiệm thu*, *audit*, *mất dữ liệu*… sẽ được chuyển cho Agent 2
+   trả lời. Đổi ý sau khi đã chốt luôn thì vẫn bấm nút nghiệm thu được bất cứ lúc nào.
 
 ## Vì sao Agent 2 đáng tin hơn là "Agent 1 tự khen mình"
 

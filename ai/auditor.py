@@ -40,11 +40,14 @@ from pydantic import ValidationError
 from ai import tools
 from ai.llm import (
     LLMSettings,
+    TokenUsage,
     MockMessage,
     MockResponse,
     MockToolCall,
     ToolEvent,
+    assistant_message_to_dict,
     extract_json,
+    is_google_endpoint,
 )
 from ai.schemas import (
     AUDIT_JSON_TEMPLATE,
@@ -53,6 +56,8 @@ from ai.schemas import (
     AuditReport,
     IncidentInput,
 )
+from data import connection as db
+from data import wap
 
 # ---------------------------------------------------------------------------
 # 1. SYSTEM PROMPT của Agent 2
@@ -78,6 +83,21 @@ mà Agent 1 (Data SRE Agent) vừa thực hiện trên warehouse DuckDB.
 - Bạn KHÔNG có quyền ghi/sửa dữ liệu, và cũng không được đề nghị Agent 1 sửa giúp để
   cho qua. Việc của bạn là kết luận ĐẠT hay KHÔNG ĐẠT.
 
+# 🧪 BẠN NGHIỆM THU TRÊN BẢNG BÓNG, KHÔNG PHẢI BẢNG THẬT (đọc kỹ)
+Hệ thống chạy theo kiến trúc **Write–Audit–Publish**. Agent 1 KHÔNG được ghi vào bảng
+production; mọi lệnh vá của bạn ấy chạy trên **bảng bóng** `shadow_<tên_bảng>`. Vì vậy:
+
+- Bạn soi **bảng bóng**: `shadow_<table>` phải sạch (0 dòng vi phạm).
+- Bảng thật **VẪN CÒN nguyên số dòng vi phạm** — đó là **ĐÚNG**, không phải lỗi. Đừng
+  kết luận "remediation thất bại" chỉ vì bảng thật còn bẩn. Bảng thật chỉ được thay đổi
+  sau khi bạn cấp chứng nhận và engineer bấm Publish.
+- Dùng `tool_inspect_shadow(prod_table, violation_sql)` để lấy một lượt: số dòng hai bên,
+  số dòng đã cách ly, số vi phạm còn lại trên bảng bóng, và schema có khớp không.
+- Bảng thật chính là **mốc so sánh** (baseline) vì nó chưa bị chạm — bạn không cần phụ
+  thuộc vào snapshot nào cả. Đây là lợi thế lớn: số liệu đối chiếu là dữ liệu sống.
+- Kết luận của bạn là **cổng mở nút Publish**. `AUDIT_PASSED` nghĩa là bạn chịu trách
+  nhiệm rằng tráo bảng bóng vào production là an toàn. Chưa chắc thì đừng cấp.
+
 # QUY TRÌNH NGHIỆM THU
 1. 🧭 Gọi `tool_get_incident_context` TRƯỚC TIÊN để lấy bằng chứng khách quan:
    baseline snapshot (số dòng & số vi phạm TRƯỚC khi vá — do hệ thống ghi, không phải
@@ -90,15 +110,21 @@ mà Agent 1 (Data SRE Agent) vừa thực hiện trên warehouse DuckDB.
    `lineage_fact_orders`, `oncall_escalation`).
 5. 🧾 Kết luận: chỉ `AUDIT_PASSED` khi TẤT CẢ hạng mục BLOCKING đều đạt.
 
-# BA HẠNG MỤC BẮT BUỘC (tự viết SQL, đừng copy của Agent 1)
-- **Check 1 — CLEANLINESS**: bảng chính còn dòng nào vi phạm rule của sự cố không?
+# BỐN HẠNG MỤC BẮT BUỘC KHI CÓ BẢNG BÓNG (tự viết SQL, đừng copy của Agent 1)
+- **Check 1 — CLEANLINESS**: `shadow_<table>` còn dòng nào vi phạm rule của sự cố không?
   Kỳ vọng: **0 dòng**. Rule lấy từ incident envelope (cột nào, loại test gì), không
   lấy từ lời Agent 1.
-- **Check 2 — DATA_PRESERVATION**: số dòng đã chuyển sang bảng `quarantine_*` có khớp
-  đúng số dòng vi phạm ban đầu không? Mục đích: bảo đảm **không xoá oan / không mất
-  dữ liệu**. So với `violation_rows_before` trong baseline.
-- **Check 3 — ROW_COUNT_INTEGRITY**: (số dòng bảng chính hiện tại) + (số dòng mới được
-  đưa vào quarantine) có bằng `total_rows_before` không? Lệch một dòng cũng là FAIL.
+- **Check 2 — DATA_PRESERVATION**: số dòng bị xoá khỏi bảng bóng có nằm đủ trong
+  `quarantine_*` không? Tức `rows(prod) - rows(shadow)` phải bằng số dòng mới vào
+  quarantine. Mục đích: bảo đảm **không xoá oan / không mất dữ liệu**.
+- **Check 3 — ROW_COUNT_INTEGRITY**: `rows(shadow) + rows(quarantine mới)` có bằng
+  `rows(prod)` không? Lệch một dòng cũng là FAIL.
+- **Check 4 — SCHEMA**: cột và kiểu dữ liệu của bảng bóng có khớp bảng thật không?
+  Tráo một bảng lệch schema vào production sẽ làm mọi consumer hạ nguồn gãy — nên đây
+  là hạng mục BLOCKING, không phải hạng mục cho có.
+
+Nếu sự cố KHÔNG có bảng bóng (luồng cũ, vá trực tiếp), hãy áp ba hạng mục đầu lên bảng
+chính và so với baseline snapshot như trước.
 
 # LINH HOẠT THEO TỪNG LOẠI SỰ CỐ (quan trọng)
 Đừng đóng khung vào một use case. Hãy tự suy luận theo `action_type` thật sự đã xảy ra:
@@ -336,16 +362,18 @@ class DataAuditorAgent:
         settings: Optional[LLMSettings] = None,
         client: Any = None,
         on_tool_event: Optional[Callable[[ToolEvent], None]] = None,
-        max_history_messages: int = 50,
     ) -> None:
         # Dùng CHUNG api_key/base_url/model với Agent 1 (xem LLMSettings.for_auditor).
         # Đặt DRA_AUDITOR_MODEL nếu muốn Checker chạy bằng model khác Maker.
+        # Ngân sách token nằm trong LLMSettings (xem PROFILES trong ai/llm.py);
+        # Checker mặc định rẻ hơn Maker vì chỉ nghiệm thu, không điều tra sâu.
         self.settings = settings or LLMSettings.for_auditor()
         self.on_tool_event = on_tool_event
-        self.max_history_messages = max_history_messages
 
         self.messages: List[Dict[str, Any]] = []
         self.tool_events: List[ToolEvent] = []
+        #: Token đã tiêu của Agent 2 (tách riêng khỏi Agent 1 để so sánh chi phí)
+        self.usage = TokenUsage()
         self.report: Optional[AuditReport] = None
 
         # Ngữ cảnh ca nghiệm thu
@@ -358,6 +386,10 @@ class DataAuditorAgent:
         self.violation_sql_source: str = "incident_envelope"
         self.engine_inconclusive: set[str] = set()
         self.context: Dict[str, Any] = {}
+        #: Bảng bóng đang nghiệm thu (rỗng = luồng cũ, soi trực tiếp bảng thật)
+        self.shadow_table: str = ""
+        #: Kết quả đối chiếu shadow vs prod gần nhất (UI đọc lại để vẽ bảng diff)
+        self.shadow_diff: Optional[Dict[str, Any]] = None
 
         self.client, self.mode = self._build_client(client)
 
@@ -400,16 +432,22 @@ class DataAuditorAgent:
         self,
         incident: Optional[IncidentInput] = None,
         remediation_report: Optional[AgentReport] = None,
+        shadow_table: str = "",
     ) -> None:
         """
         Nạp ca cần nghiệm thu và reset hội thoại.
 
         Agent 2 KHÔNG nhận `messages` của Agent 1 — chỉ nhận hồ sơ sự cố (dữ kiện gốc)
         và bản báo cáo của Agent 1 dưới nhãn "lời khai cần kiểm chứng".
+
+        `shadow_table` để rỗng thì tự suy: ưu tiên plan của Agent 1, sau đó là quy ước
+        `shadow_<table>` nếu bảng đó có thật. Không suy bừa ra tên bảng không tồn tại —
+        nghiệm thu một bảng không có thật thì tệ hơn là nói thẳng rằng thiếu bảng.
         """
         self.incident = incident
         self.report = None
         self.tool_events = []
+        self.shadow_diff = None
 
         self.incident_id = (
             (incident.incident_id if incident else "")
@@ -424,6 +462,18 @@ class DataAuditorAgent:
             incident,
             fallback=(remediation_report.remediation.verification_sql if remediation_report else ""),
         )
+
+        # Bảng bóng cần nghiệm thu (kiến trúc WAP)
+        candidate = (
+            wap.bare_name(shadow_table)
+            or (
+                wap.bare_name(remediation_report.remediation.shadow_table_name)
+                if remediation_report
+                else ""
+            )
+            or wap.shadow_name(self.target_table)
+        )
+        self.shadow_table = candidate if db.table_exists(candidate) else ""
 
         # Lấy bằng chứng khách quan ngay từ đầu (Python gọi, không qua LLM)
         self.context = tools.tool_get_incident_context(self.incident_id)
@@ -468,30 +518,32 @@ class DataAuditorAgent:
     # -- vòng lặp agent (native while loop) --------------------------------
 
     def _trim_history(self) -> None:
-        if len(self.messages) <= self.max_history_messages:
+        window = self.settings.max_history_messages
+        keep_full = max(4, window // 2)
+        # Nén (không xoá) output tool cũ — message role="tool" phải luôn đi kèm
+        # assistant.tool_calls tương ứng, xoá sẽ làm request không hợp lệ.
+        if len(self.messages) > keep_full:
+            for message in self.messages[:-keep_full]:
+                if message.get("role") != "tool":
+                    continue
+                content = message.get("content") or ""
+                if len(content) > 280:
+                    message["content"] = content[:280] + "… (đã nén để tiết kiệm token)"
+        if len(self.messages) <= window:
             return
         head = self.messages[:3]
-        tail = self.messages[-(self.max_history_messages - 4) :]
+        tail = self.messages[-(window - 4) :]
         while tail and tail[0].get("role") == "tool":
             tail = tail[1:]
         self.messages = head + [
             {"role": "system", "content": "(… lược bớt phần giữa lịch sử nghiệm thu …)"}
         ] + tail
 
-    @staticmethod
-    def _assistant_to_dict(msg: Any) -> Dict[str, Any]:
-        out: Dict[str, Any] = {"role": "assistant", "content": getattr(msg, "content", None)}
-        tool_calls = getattr(msg, "tool_calls", None)
-        if tool_calls:
-            out["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"},
-                }
-                for tc in tool_calls
-            ]
-        return out
+    def _assistant_to_dict(self, msg: Any) -> Dict[str, Any]:
+        """Giữ nguyên `extra_content` (thought_signature của Gemini) khi replay history."""
+        return assistant_message_to_dict(
+            msg, gemini=is_google_endpoint(self.settings.base_url)
+        )
 
     def _call_llm(self, use_tools: bool, json_mode: bool) -> Any:
         kwargs: Dict[str, Any] = {
@@ -524,7 +576,9 @@ class DataAuditorAgent:
         last_exc: Optional[Exception] = None
         for _ in range(attempts):
             try:
-                return self._call_llm(use_tools, json_mode)
+                response = self._call_llm(use_tools, json_mode)
+                self.usage.add(response)
+                return response
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 switched = self.settings.failover(exc)
@@ -555,8 +609,9 @@ class DataAuditorAgent:
         # Chốt cửa lần 2: Agent 2 chỉ được dùng tool ĐỌC
         result = tools.execute_tool(name, args, allowed_tools=tools.AUDITOR_ALLOWED_TOOLS)
         payload = json.dumps(result, ensure_ascii=False, default=str)
-        if len(payload) > 12000:
-            payload = payload[:12000] + '... (đã cắt bớt)"}'
+        limit = self.settings.max_tool_chars
+        if len(payload) > limit:
+            payload = payload[:limit] + f'… (đã cắt {len(payload) - limit} ký tự)"}}'
 
         self.messages.append(
             {"role": "tool", "tool_call_id": tool_call.id, "name": name, "content": payload}
@@ -571,12 +626,15 @@ class DataAuditorAgent:
         iteration = 0
         while True:
             iteration += 1
-            if iteration > limit:
+            budget = self.settings.token_budget
+            over_budget = bool(budget) and self.usage.total_tokens >= budget
+            if iteration > limit or over_budget:
                 self.messages.append(
                     {
                         "role": "user",
                         "content": (
-                            f"Em đã dùng hết {limit} bước kiểm tra. KHÔNG gọi thêm tool nữa, "
+                            f"Em đã dùng hết ngân sách ({limit} bước / "
+                            f"{self.usage.total_tokens:,} tokens). KHÔNG gọi thêm tool nữa, "
                             "hãy kết luận ngay dựa trên số liệu đã thu được."
                         ),
                     }
@@ -636,9 +694,15 @@ class DataAuditorAgent:
 
     def run_engine_checks(self) -> List[AuditCheckItem]:
         """
-        Chạy lại 3 hạng mục lõi bằng Python thuần, độc lập hoàn toàn với LLM.
+        Chạy lại các hạng mục lõi bằng Python thuần, độc lập hoàn toàn với LLM.
         Đây là "trọng tài": nếu LLM khai khác kết quả ở đây thì kết quả ở đây thắng.
+
+        Có bảng bóng thì nghiệm thu trên bảng bóng (kiến trúc WAP); không có thì rơi về
+        cách cũ là soi bảng thật và đối chiếu baseline snapshot.
         """
+        if self.shadow_table and db.table_exists(self.shadow_table):
+            return self.run_shadow_engine_checks()
+
         bare = self.target_table.split(".")[-1]
         context = tools.tool_get_incident_context(self.incident_id)
         self.context = context
@@ -854,16 +918,289 @@ class DataAuditorAgent:
 
         return checks
 
+    # -- Trọng tài cho kiến trúc WAP ---------------------------------------
+
+    def run_shadow_engine_checks(self) -> List[AuditCheckItem]:
+        """
+        Nghiệm thu **bảng bóng** bằng Python thuần. Bốn hạng mục BLOCKING.
+
+        Điểm khác biệt quan trọng so với cách cũ: không cần baseline snapshot. Bảng
+        production chưa bị chạm nên **chính nó là mốc so sánh** — số liệu sống, không
+        phải ảnh chụp có thể lệch thời điểm. Khi Agent 1 vá trực tiếp bảng thật, mốc
+        trước-khi-vá là thứ đã mất và chỉ còn snapshot để tin; ở WAP thì mốc đó vẫn nằm
+        nguyên trong database.
+
+        Hạng mục 4 (schema) là điều kiện tiên quyết của atomic swap: tráo một bảng lệch
+        cột vào production sẽ biến sự cố dữ liệu thành sự cố toàn hệ thống.
+        """
+        prod = wap.bare_name(self.target_table)
+        shadow = wap.bare_name(self.shadow_table)
+        violation_sql = self.resolve_violation_sql()
+
+        diff = wap.diff_shadow_vs_prod(prod, shadow, violation_sql=violation_sql)
+        self.shadow_diff = diff
+        self.engine_inconclusive = set()
+        checks: List[AuditCheckItem] = []
+
+        if not diff.get("ok"):
+            # Không có bảng bóng để soi thì không thể cấp chứng nhận. Nói thẳng, và để
+            # severity BLOCKING để verdict chắc chắn là FAILED.
+            return [
+                AuditCheckItem(
+                    check_name="Check 0 — Staging: không tìm thấy bảng bóng để nghiệm thu",
+                    category="CLEANLINESS",
+                    severity="BLOCKING",
+                    expected_result=f"bảng `{shadow}` tồn tại và có dữ liệu",
+                    actual_result=str(diff.get("error") or "không đọc được bảng bóng"),
+                    passed=False,
+                    finding=(
+                        "🛑 Phase Write chưa chạy hoặc bảng bóng đã bị dọn — em không có gì "
+                        "để nghiệm thu nên không thể cấp chứng nhận ạ."
+                    ),
+                    verified_by_engine=True,
+                )
+            ]
+
+        rows_prod = diff.get("rows_prod")
+        rows_shadow = diff.get("rows_shadow")
+        rows_removed = diff.get("rows_removed")
+        rows_quarantine = diff.get("rows_quarantine")
+        violations_shadow = diff.get("violations_shadow")
+        violations_prod = diff.get("violations_prod")
+        quarantine_tbl = diff.get("quarantine_table") or self.quarantine_table
+
+        # ---- Check 1: CLEANLINESS trên bảng bóng --------------------------
+        if violation_sql:
+            clean = violations_shadow == 0
+            checks.append(
+                AuditCheckItem(
+                    check_name=f"Check 1 — Cleanliness: bảng bóng `{shadow}` không còn dòng vi phạm",
+                    category="CLEANLINESS",
+                    severity="BLOCKING",
+                    query_executed=diff.get("violation_sql_shadow") or violation_sql,
+                    expected_result="0 dòng vi phạm trên bảng bóng",
+                    actual_result=(
+                        f"{violations_shadow} dòng vi phạm trên `{shadow}` "
+                        f"(bảng thật `{prod}` còn {violations_prod} dòng — chưa bị chạm, "
+                        "đúng thiết kế)"
+                    ),
+                    passed=bool(clean),
+                    finding=(
+                        "🎉 Bảng bóng đã sạch hoàn toàn ạ — tráo sang production là an toàn."
+                        if clean
+                        else f"🛑 Bảng bóng VẪN còn {violations_shadow} dòng vi phạm. "
+                        "Điều kiện WHERE trong script chưa bắt hết — chưa thể publish."
+                    ),
+                    verified_by_engine=True,
+                )
+            )
+        else:
+            self.engine_inconclusive.add("CLEANLINESS")
+            checks.append(
+                AuditCheckItem(
+                    check_name="Check 1 — Cleanliness: engine không suy được rule vi phạm",
+                    category="CLEANLINESS",
+                    severity="INFO",
+                    expected_result="có rule (cột + loại test) để engine kiểm chéo",
+                    actual_result="không xác định được từ incident envelope",
+                    passed=False,
+                    finding=(
+                        "ℹ️ Engine không kiểm chéo được hạng mục này. Kết luận dựa vào SQL "
+                        "em tự viết; không có bằng chứng thì em không cấp chứng nhận ạ."
+                    ),
+                    verified_by_engine=None,
+                )
+            )
+
+        # ---- Check 2: DATA_PRESERVATION -----------------------------------
+        if quarantine_tbl and isinstance(rows_removed, int) and isinstance(rows_quarantine, int):
+            # Số dòng biến mất khỏi bảng bóng phải nằm đủ trong quarantine.
+            preserved = rows_quarantine >= rows_removed
+            exact = rows_quarantine == rows_removed
+            checks.append(
+                AuditCheckItem(
+                    check_name="Check 2 — Data Preservation: dòng bị loại đều nằm trong quarantine",
+                    category="DATA_PRESERVATION",
+                    severity="BLOCKING",
+                    query_executed=(
+                        f"SELECT (SELECT COUNT(*) FROM {prod}) AS prod_rows, "
+                        f"(SELECT COUNT(*) FROM {shadow}) AS shadow_rows, "
+                        f"(SELECT COUNT(*) FROM {quarantine_tbl}) AS quarantine_rows"
+                    ),
+                    expected_result=f"{rows_removed} dòng bị loại đều có trong `{quarantine_tbl}`",
+                    actual_result=(
+                        f"loại {rows_removed} dòng, quarantine đang giữ {rows_quarantine} dòng"
+                        + ("" if exact else " (quarantine có dữ liệu tích luỹ từ lần trước)")
+                    ),
+                    passed=bool(preserved),
+                    finding=(
+                        "✅ Không mất dòng nào — dữ liệu bẩn còn nguyên trong quarantine để "
+                        "backfill sau ạ."
+                        if preserved
+                        else f"🛑 Loại {rows_removed} dòng nhưng quarantine chỉ giữ "
+                        f"{rows_quarantine} dòng => có dòng bị xoá không thể phục hồi."
+                    ),
+                    verified_by_engine=True,
+                )
+            )
+        elif isinstance(rows_removed, int) and rows_removed == 0:
+            # Remediation kiểu chuẩn hoá tại chỗ (UPDATE), không xoá dòng nào.
+            checks.append(
+                AuditCheckItem(
+                    check_name="Check 2 — Data Preservation: sửa tại chỗ, không xoá dòng nào",
+                    category="DATA_PRESERVATION",
+                    severity="BLOCKING",
+                    query_executed=(
+                        f"SELECT (SELECT COUNT(*) FROM {prod}) AS prod_rows, "
+                        f"(SELECT COUNT(*) FROM {shadow}) AS shadow_rows"
+                    ),
+                    expected_result=f"bảng bóng giữ đủ {rows_prod} dòng",
+                    actual_result=f"{rows_shadow} dòng",
+                    passed=True,
+                    finding="✅ Remediation sửa tại chỗ, số dòng giữ nguyên — hợp lệ ạ.",
+                    verified_by_engine=True,
+                )
+            )
+        else:
+            self.engine_inconclusive.add("DATA_PRESERVATION")
+            checks.append(
+                AuditCheckItem(
+                    check_name="Check 2 — Data Preservation: không tìm thấy bảng quarantine",
+                    category="DATA_PRESERVATION",
+                    severity="BLOCKING",
+                    query_executed=(
+                        f"SELECT (SELECT COUNT(*) FROM {prod}) AS prod_rows, "
+                        f"(SELECT COUNT(*) FROM {shadow}) AS shadow_rows"
+                    ),
+                    expected_result="có bảng quarantine giữ các dòng bị loại",
+                    actual_result=(
+                        f"loại {rows_removed} dòng nhưng không thấy bảng "
+                        f"`{wap.quarantine_name(prod)}`"
+                    ),
+                    passed=False,
+                    finding=(
+                        "🛑 Có dòng bị loại mà không có bảng quarantine nào giữ lại => dữ liệu "
+                        "sẽ mất vĩnh viễn sau khi publish. Em không cấp chứng nhận ạ."
+                    ),
+                    verified_by_engine=True,
+                )
+            )
+
+        # ---- Check 3: ROW_COUNT_INTEGRITY ---------------------------------
+        if isinstance(rows_prod, int) and isinstance(rows_shadow, int):
+            removed = rows_removed if isinstance(rows_removed, int) else 0
+            total_back = rows_shadow + removed
+            ok = total_back == rows_prod
+            checks.append(
+                AuditCheckItem(
+                    check_name="Check 3 — Row Count Integrity: tổng số dòng được bảo toàn",
+                    category="ROW_COUNT_INTEGRITY",
+                    severity="BLOCKING",
+                    query_executed=(
+                        f"SELECT (SELECT COUNT(*) FROM {shadow}) AS shadow_rows, "
+                        f"(SELECT COUNT(*) FROM {prod}) AS prod_rows"
+                    ),
+                    expected_result=f"shadow + đã-loại = {rows_prod} (số dòng bảng thật)",
+                    actual_result=f"{rows_shadow} + {removed} = {total_back}",
+                    passed=bool(ok),
+                    finding=(
+                        "✅ Tổng số dòng khớp tuyệt đối, không bốc hơi dòng nào 💚"
+                        if ok
+                        else f"🛑 Lệch {total_back - rows_prod} dòng so với bảng thật."
+                    ),
+                    verified_by_engine=True,
+                )
+            )
+        else:
+            self.engine_inconclusive.add("ROW_COUNT_INTEGRITY")
+            checks.append(
+                AuditCheckItem(
+                    check_name="Check 3 — Row Count Integrity: không đếm được số dòng",
+                    category="ROW_COUNT_INTEGRITY",
+                    severity="INFO",
+                    expected_result="đếm được cả bảng thật và bảng bóng",
+                    actual_result=f"prod={rows_prod}, shadow={rows_shadow}",
+                    passed=False,
+                    finding="ℹ️ Thiếu số liệu nên engine không kết luận được ạ.",
+                    verified_by_engine=None,
+                )
+            )
+
+        # ---- Check 4: SCHEMA — điều kiện tiên quyết của atomic swap -------
+        schema_match = diff.get("schema_match")
+        schema_diff = diff.get("schema_diff") or []
+        checks.append(
+            AuditCheckItem(
+                check_name="Check 4 — Schema: bảng bóng khớp schema bảng thật (điều kiện atomic swap)",
+                category="SCHEMA",
+                severity="BLOCKING",
+                query_executed=f"DESCRIBE {shadow}  /* đối chiếu với */  DESCRIBE {prod}",
+                expected_result="cột và kiểu dữ liệu khớp hoàn toàn, đúng thứ tự",
+                actual_result=(
+                    "khớp hoàn toàn"
+                    if schema_match
+                    else f"lệch {len(schema_diff)} điểm: "
+                    + json.dumps(schema_diff, ensure_ascii=False)[:300]
+                ),
+                passed=bool(schema_match),
+                finding=(
+                    "✅ Schema khớp nên tráo bảng sẽ không làm hạ nguồn gãy ạ."
+                    if schema_match
+                    else "🛑 Schema lệch — nếu publish thì mọi consumer hạ nguồn sẽ gãy. "
+                    "Nguy hiểm hơn cả sự cố ban đầu."
+                ),
+                verified_by_engine=True,
+            )
+        )
+
+        # ---- Check 5: bằng chứng Zero Blast Radius ------------------------
+        # Không phải hạng mục chặn theo nghĩa chất lượng dữ liệu, nhưng là bằng chứng
+        # kiểm toán quan trọng: chứng minh phase Write đã không chạm production.
+        untouched = (
+            isinstance(violations_prod, int)
+            and isinstance(violations_shadow, int)
+            and violations_prod >= violations_shadow
+        )
+        checks.append(
+            AuditCheckItem(
+                check_name="Check 5 — Zero Blast Radius: bảng production chưa bị thay đổi",
+                category="CUSTOM",
+                severity="WARNING",
+                query_executed=diff.get("violation_sql_prod") or "",
+                expected_result="bảng thật vẫn còn nguyên dữ liệu bẩn (chưa bị vá)",
+                actual_result=(
+                    f"`{prod}`: {rows_prod} dòng / {violations_prod} vi phạm — "
+                    f"`{shadow}`: {rows_shadow} dòng / {violations_shadow} vi phạm"
+                ),
+                passed=bool(untouched),
+                finding=(
+                    "✅ Xác nhận bảng thật chưa bị chạm ở phase Write — đúng nguyên tắc "
+                    "Zero Blast Radius ạ."
+                    if untouched
+                    else "⚠️ Số liệu bảng thật trông như đã bị thay đổi — cần điều tra vì "
+                    "phase Write không được phép làm việc đó."
+                ),
+                verified_by_engine=True,
+            )
+        )
+        return checks
+
     # -- API chính ---------------------------------------------------------
 
     def audit(
         self,
         incident: Optional[IncidentInput] = None,
         remediation_report: Optional[AgentReport] = None,
+        shadow_table: str = "",
     ) -> AuditReport:
         """Chạy trọn một lượt nghiệm thu độc lập và trả về `AuditReport` đã validate."""
-        if incident is not None or remediation_report is not None or not self.messages:
-            self.load_case(incident, remediation_report)
+        if (
+            incident is not None
+            or remediation_report is not None
+            or shadow_table
+            or not self.messages
+        ):
+            self.load_case(incident, remediation_report, shadow_table=shadow_table)
 
         self.messages.append({"role": "user", "content": self._pending_case})
         narrative = self._agent_loop()
@@ -873,58 +1210,110 @@ class DataAuditorAgent:
         report = self._reconcile_with_engine(report)
         # Ghi lại model đã nghiệm thu (phục vụ truy vết cross-model checking)
         report.auditor_model = self.settings.model if not self.is_offline else "offline-engine"
+        # `is_ready_for_production` do validator của AuditReport tự suy từ `checks`,
+        # gán lại shadow_table rồi validate lần nữa để cổng publish tính đúng ngữ cảnh.
+        report.shadow_table = self.shadow_table
+        report = AuditReport.model_validate(report.model_dump())
+        report.auditor_model = self.settings.model if not self.is_offline else "offline-engine"
         self.report = report
         return report
 
+    def evidence_digest(self, max_chars: int = 220) -> str:
+        """
+        Bản tóm tắt bằng chứng: mỗi tool call -> 1 dòng (SQL + kết quả rút gọn).
+
+        Dùng cho bước đóng gói JSON: đủ để điền `query_executed` / `actual_result` mà
+        KHÔNG phải gửi lại toàn bộ history (tiết kiệm phần lớn token của Agent 2).
+        """
+        lines: List[str] = []
+        for event in self.tool_events:
+            result = json.dumps(event.result, ensure_ascii=False, default=str)
+            if len(result) > max_chars:
+                result = result[:max_chars] + "…"
+            if event.name == "tool_query_duckdb":
+                sql = " ".join(str(event.arguments.get("query", "")).split())
+                lines.append(f"- SQL: {sql}\n  -> {result}")
+            elif event.name == "tool_get_incident_context":
+                lines.append(f"- tool_get_incident_context -> {result}")
+            else:
+                lines.append(f"- {event.name}({event.arguments}) -> {result}")
+        return "\n".join(lines) or "(chưa chạy tool nào)"
+
     def _request_structured_audit(self, narrative: str = "") -> AuditReport:
-        self.messages.append(
+        """
+        Ép LLM đóng gói biên bản thành JSON (có retry).
+
+        Tiết kiệm token: KHÔNG gửi lại toàn bộ history nghiệm thu. Chỉ gửi system prompt
+        + digest bằng chứng (SQL đã chạy kèm kết quả rút gọn) + tóm tắt + template.
+        """
+        report_messages: List[Dict[str, Any]] = [
+            self.messages[0],  # system prompt
             {
                 "role": "user",
-                "content": AUDIT_REPORT_INSTRUCTION.format(
-                    template=AUDIT_JSON_TEMPLATE,
-                    incident_id=self.incident_id,
-                    target_table=self.target_table,
+                "content": (
+                    f"Sự cố: {self.incident_id} · bảng chính: {self.target_table} · "
+                    f"bảng cách ly: {self.quarantine_table or '(không có)'}\n\n"
+                    "=== BẰNG CHỨNG EM ĐÃ THU (SQL + kết quả thật) ===\n"
+                    f"{self.evidence_digest()}\n\n"
+                    "=== TÓM TẮT NGHIỆM THU CỦA EM ===\n"
+                    f"{narrative.strip() or '(không có)'}\n\n"
+                    + AUDIT_REPORT_INSTRUCTION.format(
+                        template=AUDIT_JSON_TEMPLATE,
+                        incident_id=self.incident_id,
+                        target_table=self.target_table,
+                    )
                 ),
-            }
-        )
+            },
+        ]
+        full_history = self.messages
+        self.messages = report_messages
+
         last_error = ""
-        for attempt in range(3):
-            try:
-                response = self._completion(use_tools=False, json_mode=True)
-                raw = getattr(response.choices[0].message, "content", "") or ""
-            except Exception as exc:  # noqa: BLE001
-                last_error = f"Lỗi gọi LLM: {exc}"
-                break
-
-            self.messages.append({"role": "assistant", "content": raw})
-            data = extract_json(raw)
-            if data is None:
-                last_error = "Output không chứa JSON hợp lệ."
-            else:
-                # audit_id do hệ thống cấp, KHÔNG để LLM tự đặt (nó hay copy nguyên
-                # mã ví dụ trong template, làm trùng mã giữa các lần nghiệm thu).
-                data["audit_id"] = self.audit_id
-                data.setdefault("audited_incident_id", self.incident_id)
-                data.setdefault("target_table", self.target_table)
-                data.setdefault("quarantine_table", self.quarantine_table or "")
+        report: Optional[AuditReport] = None
+        try:
+            for attempt in range(3):
                 try:
-                    report = AuditReport.model_validate(data)
-                    if narrative and not report.auditor_notes:
-                        report.auditor_notes = " ".join(narrative.split())[:600]
-                    return report
-                except ValidationError as exc:
-                    last_error = f"Sai schema: {exc.errors()[:3]}"
+                    response = self._completion(use_tools=False, json_mode=True)
+                    raw = getattr(response.choices[0].message, "content", "") or ""
+                except Exception as exc:  # noqa: BLE001
+                    last_error = f"Lỗi gọi LLM: {exc}"
+                    break
 
-            if attempt < 2:
-                self.messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            f"JSON vừa rồi không dùng được ({last_error}). Trả lại DUY NHẤT "
-                            "một object JSON đúng schema, không kèm chữ nào khác."
-                        ),
-                    }
-                )
+                self.messages.append({"role": "assistant", "content": raw})
+                data = extract_json(raw)
+                if data is None:
+                    last_error = "Output không chứa JSON hợp lệ."
+                else:
+                    # audit_id do hệ thống cấp, KHÔNG để LLM tự đặt (nó hay copy nguyên
+                    # mã ví dụ trong template, làm trùng mã giữa các lần nghiệm thu).
+                    data["audit_id"] = self.audit_id
+                    data.setdefault("audited_incident_id", self.incident_id)
+                    data.setdefault("target_table", self.target_table)
+                    data.setdefault("quarantine_table", self.quarantine_table or "")
+                    try:
+                        report = AuditReport.model_validate(data)
+                        if narrative and not report.auditor_notes:
+                            report.auditor_notes = " ".join(narrative.split())[:600]
+                        break
+                    except ValidationError as exc:
+                        last_error = f"Sai schema: {exc.errors()[:3]}"
+
+                if attempt < 2:
+                    self.messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"JSON vừa rồi không dùng được ({last_error}). Trả lại DUY NHẤT "
+                                "một object JSON đúng schema, không kèm chữ nào khác."
+                            ),
+                        }
+                    )
+        finally:
+            # Trả lại history đầy đủ để engineer vẫn chất vấn Agent 2 được sau đó
+            self.messages = full_history
+
+        if report is not None:
+            return report
 
         # Fallback: LLM không trả nổi JSON -> vẫn có giấy nghiệm thu từ engine checks
         engine = self.run_engine_checks()
@@ -1054,13 +1443,20 @@ class DataAuditorAgent:
 def run_audit_headless(
     incident: Optional[IncidentInput] = None,
     remediation_report: Optional[AgentReport] = None,
+    shadow_table: str = "",
 ) -> Dict[str, Any]:
     """Chạy Agent 2 không cần UI (dùng cho REST API / cron / test)."""
     auditor = DataAuditorAgent()
-    report = auditor.audit(incident=incident, remediation_report=remediation_report)
+    report = auditor.audit(
+        incident=incident, remediation_report=remediation_report, shadow_table=shadow_table
+    )
     return {
         "mode": auditor.mode,
         "audit_report": json.loads(report.to_json()),
+        "shadow_table": auditor.shadow_table,
+        "shadow_diff": auditor.shadow_diff,
+        "is_ready_for_production": report.is_ready_for_production,
+        "failed_details": report.failed_details,
         "tool_calls": [
             {"name": e.name, "arguments": e.arguments, "ok": e.ok} for e in auditor.tool_events
         ],

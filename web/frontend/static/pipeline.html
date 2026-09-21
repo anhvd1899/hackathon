@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<!--
+  web/frontend/static/pipeline.html — Airflow-Style Pipeline Orchestrator & Visual SQL DAG
+  OpenDesign Dark Mode (Tailwind CSS CDN + Inter + JetBrains Mono)
+-->
+<html lang="vi" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pipeline Orchestrator · Visual SQL DAG & Task Monitor</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: { DEFAULT: '#080C14', 1: '#0F172A', 2: '#1E293B', 3: '#334155' },
+            emerald: { glow: '#10B981' },
+            rose: { pulse: '#F43F5E' },
+            amber: { accent: '#F59E0B' },
+            cyan: { accent: '#06B6D4' },
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Cascadia Code', 'Consolas', 'monospace'],
+          },
+          animation: {
+            'breathing': 'breathing 2.4s ease-in-out infinite',
+            'slide-in-right': 'slideInRight 0.3s cubic-bezier(0.16,1,0.3,1)',
+            'fade-in': 'fadeIn 0.2s ease-out',
+          },
+          keyframes: {
+            breathing: {
+              '0%, 100%': { opacity: '1' },
+              '50%': { opacity: '0.4' },
+            },
+            slideInRight: {
+              '0%': { transform: 'translateX(100%)' },
+              '100%': { transform: 'translateX(0)' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body {
+      background-color: #080C14;
+      background-image:
+        radial-gradient(ellipse 70% 50% at 50% -10%, rgba(6,182,212,0.06) 0%, transparent 60%),
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+      background-size: 100% 100%, 40px 40px, 40px 40px;
+      min-height: 100vh;
+    }
+
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(12px);
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+    /* Node hover effects */
+    .dag-node {
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .dag-node:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+
+    /* Tab styles */
+    .tab-active {
+      color: #38bdf8;
+      border-bottom: 2px solid #06B6D4;
+    }
+    .tab-inactive {
+      color: #64748b;
+      border-bottom: 2px solid transparent;
+    }
+    .tab-inactive:hover {
+      color: #94a3b8;
+    }
+
+    /* SVG Connections */
+    .dag-edge {
+      stroke: rgba(255, 255, 255, 0.15);
+      stroke-width: 2;
+      fill: none;
+      transition: stroke 0.2s ease;
+    }
+    .dag-edge.highlight {
+      stroke: #06B6D4;
+      stroke-width: 3;
+    }
+  </style>
+</head>
+
+<body class="font-sans text-slate-200 antialiased flex flex-col min-h-screen">
+
+  <!-- ============================================================ -->
+  <!-- TOPBAR & ORCHESTRATION CONTROL                              -->
+  <!-- ============================================================ -->
+  <header class="sticky top-0 z-40 glass-card border-b border-white/10 px-5 py-3">
+    <div class="max-w-[1720px] mx-auto flex items-center justify-between gap-4 flex-wrap">
+
+      <!-- Brand & DAG info -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-cyan-accent/10 border border-cyan-accent/30 flex items-center justify-center">
+          <i data-lucide="git-branch" class="w-5 h-5 text-cyan-accent"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base font-bold text-white tracking-tight">PIPELINE ORCHESTRATOR</h1>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-accent/15 text-cyan-accent border border-cyan-accent/30">DAG: ecommerce_orders_elt</span>
+          </div>
+          <div class="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+            <span id="dag-summary-stats" class="font-mono text-[11px]">11 tasks · In-Process DuckDB + dbt</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Control Bar: Mode Toggle & Actions -->
+      <div class="flex items-center gap-3 flex-wrap">
+        <!-- SCHEDULER MODE TOGGLE BUTTON -->
+        <button id="btn-toggle-scheduler" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all active:scale-95 shadow-sm">
+          <span class="w-2 h-2 rounded-full" id="scheduler-dot"></span>
+          <span id="scheduler-mode-label">Đang tải chế độ...</span>
+        </button>
+
+        <!-- TRIGGER ENTIRE DAG RUN -->
+        <button id="btn-trigger-dag" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-glow to-emerald-500 text-white shadow-lg shadow-emerald-glow/20 hover:shadow-emerald-glow/40 active:scale-95">
+          <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i> Trigger DAG Run
+        </button>
+
+        <!-- REFRESH -->
+        <button id="btn-refresh-dag" class="p-2 rounded-xl bg-surface-2/80 border border-white/10 text-slate-400 hover:text-white hover:bg-surface-3 active:scale-95" title="Làm mới">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+        </button>
+
+        <!-- NAV LINKS -->
+        <div class="h-6 w-px bg-white/10 mx-1"></div>
+        <a href="/" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-surface-2/80 text-slate-300 border border-white/10 hover:bg-surface-3 hover:text-white">
+          <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i> Dashboard
+        </a>
+        <a href="/query" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-surface-2/80 text-slate-300 border border-white/10 hover:bg-surface-3 hover:text-white">
+          <i data-lucide="database" class="w-3.5 h-3.5"></i> SQL Studio
+        </a>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ============================================================ -->
+  <!-- MAIN WORKSPACE                                                -->
+  <!-- ============================================================ -->
+  <main class="max-w-[1720px] mx-auto px-5 py-4 flex-1 flex flex-col w-full">
+
+    <!-- View Mode Tabs -->
+    <div class="flex items-center justify-between border-b border-white/10 mb-4 pb-1">
+      <div class="flex items-center gap-2">
+        <button data-view="graph" class="view-tab tab-active px-4 py-2 text-xs font-semibold tracking-wide uppercase flex items-center gap-2">
+          <i data-lucide="git-merge" class="w-4 h-4"></i> Graph View (Visual DAG)
+        </button>
+        <button data-view="grid" class="view-tab tab-inactive px-4 py-2 text-xs font-semibold tracking-wide uppercase flex items-center gap-2">
+          <i data-lucide="grid" class="w-4 h-4"></i> Grid View (Task Instances)
+        </button>
+        <button data-view="list" class="view-tab tab-inactive px-4 py-2 text-xs font-semibold tracking-wide uppercase flex items-center gap-2">
+          <i data-lucide="list" class="w-4 h-4"></i> Task Details Table
+        </button>
+      </div>
+
+      <div class="flex items-center gap-4 text-xs text-slate-400">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded bg-emerald-glow"></span><span>Success</span>
+          <span class="w-2.5 h-2.5 rounded bg-rose-pulse ml-2"></span><span>Failed</span>
+          <span class="w-2.5 h-2.5 rounded bg-purple-500 ml-2"></span><span>Error</span>
+          <span class="w-2.5 h-2.5 rounded bg-slate-600 ml-2"></span><span>Pending</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- VIEW 1: GRAPH VIEW (Interactive SVG/Canvas DAG)           -->
+    <!-- ======================================================== -->
+    <div id="view-graph" class="view-panel flex-1 glass-card rounded-2xl p-6 relative overflow-hidden flex flex-col" style="min-height: 600px;">
+      <div class="flex items-center justify-between mb-4 text-xs text-slate-400 shrink-0">
+        <div class="flex items-center gap-2">
+          <i data-lucide="info" class="w-4 h-4 text-cyan-accent"></i>
+          <span>Click vào bất kỳ <strong>Task Node</strong> nào trên sơ đồ để xem <strong>Logs chi tiết</strong> & định nghĩa SQL</span>
+        </div>
+        <div class="text-[11px] font-mono text-slate-500">Flow: Ingestion ➔ DQ Gate ➔ Staging ➔ Marts</div>
+      </div>
+
+      <!-- DAG Visual Graph Container -->
+      <div class="flex-1 relative overflow-auto border border-white/5 rounded-xl bg-[#060A13] p-8" id="dag-container">
+        <!-- SVG Canvas for connecting lines -->
+        <svg id="dag-svg" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
+
+        <!-- 4 Columns of Nodes -->
+        <div class="relative z-10 grid grid-cols-4 gap-12 min-w-[1000px] h-full items-start">
+
+          <!-- Column 1: Ingestion Layer -->
+          <div class="space-y-4">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-white/10 flex items-center justify-between">
+              <span>1. Ingestion (Sources)</span>
+              <span class="text-[10px] font-mono text-slate-600">4 tasks</span>
+            </div>
+            <div id="col-ingestion" class="space-y-3"></div>
+          </div>
+
+          <!-- Column 2: DQ Quality Gate -->
+          <div class="space-y-4">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-white/10 flex items-center justify-between">
+              <span>2. Quality Gate</span>
+              <span class="text-[10px] font-mono text-amber-accent">DQ Assertions</span>
+            </div>
+            <div id="col-gate" class="space-y-3"></div>
+          </div>
+
+          <!-- Column 3: Staging Layer -->
+          <div class="space-y-4">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-white/10 flex items-center justify-between">
+              <span>3. Staging (dbt)</span>
+              <span class="text-[10px] font-mono text-slate-600">2 tasks</span>
+            </div>
+            <div id="col-staging" class="space-y-3"></div>
+          </div>
+
+          <!-- Column 4: Marts & Analytics -->
+          <div class="space-y-4">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-white/10 flex items-center justify-between">
+              <span>4. Marts (Serving)</span>
+              <span class="text-[10px] font-mono text-emerald-glow">Tier-0 Ready</span>
+            </div>
+            <div id="col-marts" class="space-y-3"></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- VIEW 2: GRID VIEW (Airflow Matrix of Runs)                -->
+    <!-- ======================================================== -->
+    <div id="view-grid" class="view-panel hidden flex-1 glass-card rounded-2xl p-6">
+      <div class="text-xs text-slate-400 mb-4 flex items-center justify-between">
+        <span>Lịch sử các lần chạy gần nhất của từng task trong DAG</span>
+        <span class="font-mono text-[11px] text-slate-500">Airflow 2.x Grid Style</span>
+      </div>
+      <div class="overflow-auto max-h-[560px]">
+        <table class="w-full text-xs" id="grid-table">
+          <thead class="sticky top-0 bg-surface-1">
+            <tr id="grid-header-row" class="border-b border-white/10 text-slate-400">
+              <th class="text-left py-2.5 px-4 font-semibold">Task ID</th>
+              <th class="text-left py-2.5 px-4 font-semibold">Layer</th>
+              <!-- Runs columns added by JS -->
+            </tr>
+          </thead>
+          <tbody id="grid-body-rows" class="text-slate-300"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- VIEW 3: TASK DETAILS TABLE                                -->
+    <!-- ======================================================== -->
+    <div id="view-list" class="view-panel hidden flex-1 glass-card rounded-2xl overflow-hidden">
+      <div class="overflow-auto max-h-[640px]">
+        <table class="w-full text-xs">
+          <thead class="sticky top-0 bg-surface-1 border-b border-white/10 text-slate-400">
+            <tr>
+              <th class="text-left py-3 px-4 uppercase text-[10px] font-semibold">Status</th>
+              <th class="text-left py-3 px-4 uppercase text-[10px] font-semibold">Task ID / Name</th>
+              <th class="text-left py-3 px-4 uppercase text-[10px] font-semibold">Layer</th>
+              <th class="text-left py-3 px-4 uppercase text-[10px] font-semibold">Tier</th>
+              <th class="text-left py-3 px-4 uppercase text-[10px] font-semibold">DQ Assertions</th>
+              <th class="text-left py-3 px-4 uppercase text-[10px] font-semibold">Last Duration</th>
+              <th class="text-left py-3 px-4 uppercase text-[10px] font-semibold">Dependencies</th>
+              <th class="text-right py-3 px-4 uppercase text-[10px] font-semibold">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="task-list-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ============================================================ -->
+  <!-- SLIDE-OVER DRAWER: Task Details & Logs Inspector (Airflow)   -->
+  <!-- ============================================================ -->
+  <div id="task-drawer" class="hidden fixed inset-0 z-50 flex justify-end">
+    <!-- Overlay -->
+    <div id="drawer-overlay" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+
+    <!-- Drawer Content -->
+    <div class="relative w-full max-w-3xl bg-[#0B101D] border-l border-white/10 shadow-2xl flex flex-col h-full animate-slide-in-right z-10">
+
+      <!-- Drawer Header -->
+      <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-surface-1/90">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-surface-2 border border-white/10 flex items-center justify-center">
+            <i data-lucide="terminal" class="w-4 h-4 text-cyan-accent"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 id="drawer-task-id" class="text-sm font-bold font-mono text-white">task_id</h2>
+              <span id="drawer-task-status" class="px-2 py-0.5 rounded text-[10px] font-bold">STATUS</span>
+            </div>
+            <p id="drawer-task-name" class="text-xs text-slate-400 mt-0.5">Task description</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="btn-drawer-run-task" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-glow/15 text-emerald-glow border border-emerald-glow/30 hover:bg-emerald-glow/25 active:scale-95">
+            <i data-lucide="play" class="w-3 h-3 fill-current"></i> Re-run Task
+          </button>
+          <button id="drawer-close" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-surface-2">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Drawer Tabs -->
+      <div class="flex items-center border-b border-white/10 px-6 bg-surface-1/50">
+        <button data-dtab="logs" class="dtab-btn text-xs font-semibold py-2.5 px-4 text-cyan-accent border-b-2 border-cyan-accent">
+          <i data-lucide="file-text" class="w-3.5 h-3.5 inline mr-1.5"></i> Task Instance Log
+        </button>
+        <button data-dtab="details" class="dtab-btn text-xs font-semibold py-2.5 px-4 text-slate-400 border-b-2 border-transparent hover:text-slate-200">
+          <i data-lucide="info" class="w-3.5 h-3.5 inline mr-1.5"></i> Task Metadata
+        </button>
+        <button data-dtab="sql" class="dtab-btn text-xs font-semibold py-2.5 px-4 text-slate-400 border-b-2 border-transparent hover:text-slate-200">
+          <i data-lucide="code" class="w-3.5 h-3.5 inline mr-1.5"></i> Compiled SQL
+        </button>
+      </div>
+
+      <!-- Drawer Body -->
+      <div class="flex-1 overflow-auto p-6 flex flex-col">
+
+        <!-- Tab 1: Task Log (Airflow Console) -->
+        <div id="dpanel-logs" class="dtab-panel flex-1 flex flex-col">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] font-mono text-slate-500">Log output (Airflow attempt 1)</span>
+            <button id="btn-copy-log" class="text-xs text-cyan-accent hover:text-cyan-300 inline-flex items-center gap-1">
+              <i data-lucide="copy" class="w-3 h-3"></i> Copy log
+            </button>
+          </div>
+          <div class="flex-1 bg-[#05080F] rounded-xl border border-white/10 p-4 font-mono text-[11px] leading-relaxed overflow-auto select-text">
+            <pre id="drawer-log-content" class="text-slate-300 font-mono"></pre>
+          </div>
+        </div>
+
+        <!-- Tab 2: Task Metadata -->
+        <div id="dpanel-details" class="dtab-panel hidden space-y-4 text-xs">
+          <div class="glass-card rounded-xl p-4 space-y-2">
+            <h3 class="text-xs font-bold text-white uppercase tracking-wider mb-2">Thông tin Task</h3>
+            <div class="grid grid-cols-2 gap-2 text-slate-300">
+              <div><span class="text-slate-500">Layer:</span> <span id="meta-layer" class="font-mono text-cyan-accent"></span></div>
+              <div><span class="text-slate-500">Tier:</span> <span id="meta-tier" class="font-mono"></span></div>
+              <div><span class="text-slate-500">Target Table:</span> <code id="meta-table" class="font-mono text-emerald-glow"></code></div>
+              <div><span class="text-slate-500">Owner:</span> <span id="meta-owner"></span></div>
+              <div><span class="text-slate-500">Execution Time:</span> <span id="meta-duration" class="font-mono"></span></div>
+              <div><span class="text-slate-500">Run ID:</span> <span id="meta-run-id" class="font-mono text-[11px]"></span></div>
+            </div>
+          </div>
+
+          <div class="glass-card rounded-xl p-4">
+            <h3 class="text-xs font-bold text-white uppercase tracking-wider mb-2">DQ Assertions Cổng Kiểm Tra</h3>
+            <ul id="meta-dq-list" class="space-y-1 font-mono text-[11px] text-slate-400"></ul>
+          </div>
+        </div>
+
+        <!-- Tab 3: Compiled SQL -->
+        <div id="dpanel-sql" class="dtab-panel hidden flex-1 flex flex-col">
+          <div class="flex-1 bg-[#05080F] rounded-xl border border-white/10 p-4 font-mono text-[11px] leading-relaxed overflow-auto">
+            <pre id="drawer-sql-content" class="text-emerald-glow font-mono"></pre>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- LOADING OVERLAY                                              -->
+  <!-- ============================================================ -->
+  <div id="loading-overlay" class="hidden fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center">
+    <div class="flex flex-col items-center gap-3">
+      <div class="w-9 h-9 border-2 border-white/10 border-t-cyan-accent rounded-full animate-spin"></div>
+      <span id="loading-msg" class="text-xs text-slate-300 font-medium">Đang thực thi...</span>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- JAVASCRIPT LOGIC                                             -->
+  <!-- ============================================================ -->
+  <script>
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  let currentDagData = null;
+  let activeTaskForDrawer = null;
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]
+    );
+  }
+
+  function showLoading(msg = 'Đang xử lý...') {
+    $('loading-msg').textContent = msg;
+    $('loading-overlay').classList.remove('hidden');
+  }
+
+  function hideLoading() {
+    $('loading-overlay').classList.add('hidden');
+  }
+
+  // Load DAG data from API
+  async function loadDAG() {
+    try {
+      const res = await fetch('/api/pipeline/dag');
+      if (!res.ok) throw new Error(res.statusText);
+      currentDagData = await res.json();
+
+      renderSchedulerStatus(currentDagData.scheduler);
+      renderGraphView(currentDagData);
+      renderGridView(currentDagData);
+      renderTaskTableView(currentDagData);
+    } catch (err) {
+      console.error('Failed to load DAG:', err);
+    }
+  }
+
+  // Render Scheduler Mode Button
+  function renderSchedulerStatus(scheduler) {
+    const isAuto = scheduler && scheduler.enabled;
+    const btn = $('btn-toggle-scheduler');
+    const dot = $('scheduler-dot');
+    const label = $('scheduler-mode-label');
+
+    if (isAuto) {
+      btn.className = 'inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-glow/10 text-emerald-glow border border-emerald-glow/30 hover:bg-emerald-glow/20 active:scale-95';
+      dot.className = 'w-2 h-2 rounded-full bg-emerald-glow animate-pulse';
+      label.textContent = `🟢 AUTO-RUN: ON (${scheduler.interval_seconds}s)`;
+    } else {
+      btn.className = 'inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-accent/15 text-amber-accent border border-amber-accent/30 hover:bg-amber-accent/25 active:scale-95';
+      dot.className = 'w-2 h-2 rounded-full bg-amber-accent';
+      label.textContent = '⏸️ MANUAL MODE (Chạy thủ công)';
+    }
+  }
+
+  // Toggle Scheduler
+  async function toggleScheduler() {
+    showLoading('Đang chuyển đổi chế độ scheduler...');
+    try {
+      const res = await fetch('/api/scheduler/toggle', { method: 'POST' });
+      const data = await res.json();
+      hideLoading();
+      renderSchedulerStatus(data);
+    } catch (err) {
+      hideLoading();
+      alert('Lỗi toggle scheduler: ' + err.message);
+    }
+  }
+
+  // Trigger DAG Run (Manual Execution)
+  async function triggerDagRun() {
+    showLoading('Đang chạy toàn bộ DAG tuần tự (Topological order)...');
+    try {
+      const res = await fetch('/api/pipeline/dag/run', { method: 'POST' });
+      const data = await res.json();
+      hideLoading();
+      await loadDAG();
+    } catch (err) {
+      hideLoading();
+      alert('Lỗi chạy DAG: ' + err.message);
+    }
+  }
+
+  // Render Graph View (Airflow Canvas)
+  function renderGraphView(data) {
+    const nodes = data.nodes || [];
+
+    const cols = {
+      ingestion: $('col-ingestion'),
+      gate: $('col-gate'),
+      staging: $('col-staging'),
+      marts: $('col-marts'),
+    };
+
+    Object.values(cols).forEach(c => c.innerHTML = '');
+
+    nodes.forEach(node => {
+      let targetCol = cols.staging;
+      if (node.layer === 'ingestion') targetCol = cols.ingestion;
+      else if (node.layer === 'gate') targetCol = cols.gate;
+      else if (node.layer === 'marts' || node.layer === 'serving') targetCol = cols.marts;
+
+      const isFailed = node.status === 'failed';
+      const isSuccess = node.status === 'success';
+
+      const borderClass = isFailed ? 'border-rose-pulse/40 bg-rose-pulse/5' :
+                          isSuccess ? 'border-emerald-glow/40 bg-emerald-glow/5' :
+                          'border-white/10 bg-surface-2/40';
+
+      const statusBadge = isFailed
+        ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-pulse/20 text-rose-pulse border border-rose-pulse/30 animate-pulse">FAIL</span>'
+        : isSuccess
+        ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-glow/20 text-emerald-glow border border-emerald-glow/30">PASS</span>'
+        : '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-surface-2 text-slate-400">PENDING</span>';
+
+      const html = `
+        <div class="dag-node p-3 rounded-xl border ${borderClass} cursor-pointer select-none" data-node-id="${esc(node.id)}">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[9px] font-mono uppercase px-1.5 py-0.2 rounded bg-surface-1 text-slate-400 border border-white/5">${esc(node.layer)}</span>
+            ${statusBadge}
+          </div>
+          <div class="font-bold text-xs text-white truncate font-mono">${esc(node.id)}</div>
+          <div class="text-[11px] text-slate-400 truncate mt-0.5">${esc(node.name)}</div>
+          <div class="mt-2 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500">
+            <span>${node.duration_ms}ms</span>
+            <span>${node.tests_total ? `${node.tests_failed}/${node.tests_total} DQ fail` : 'No checks'}</span>
+          </div>
+        </div>
+      `;
+
+      targetCol.insertAdjacentHTML('beforeend', html);
+    });
+
+    // Attach click event to all nodes to open drawer
+    $$('.dag-node').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.nodeId;
+        openTaskDrawer(id);
+      });
+    });
+
+    lucide.createIcons();
+  }
+
+  // Render Grid View
+  function renderGridView(data) {
+    const nodes = data.nodes || [];
+    const tbody = $('grid-body-rows');
+    const headerRow = $('grid-header-row');
+
+    // Add 5 run columns
+    while (headerRow.children.length > 2) {
+      headerRow.removeChild(headerRow.lastChild);
+    }
+    for (let i = 5; i >= 1; i--) {
+      const th = document.createElement('th');
+      th.className = 'py-2 px-3 text-center text-[10px] font-mono text-slate-500';
+      th.textContent = `Run -${i}`;
+      headerRow.appendChild(th);
+    }
+
+    tbody.innerHTML = nodes.map(n => {
+      const isFailed = n.status === 'failed';
+      return `
+        <tr class="border-b border-white/5 hover:bg-white/[0.02] cursor-pointer" onclick="openTaskDrawer('${esc(n.id)}')">
+          <td class="py-2 px-4 font-mono font-bold text-white text-xs">${esc(n.id)}</td>
+          <td class="py-2 px-4 text-slate-400 text-xs">${esc(n.layer)}</td>
+          <td class="py-2 px-3 text-center"><span class="inline-block w-4 h-4 rounded-full bg-emerald-glow/60"></span></td>
+          <td class="py-2 px-3 text-center"><span class="inline-block w-4 h-4 rounded-full bg-emerald-glow/60"></span></td>
+          <td class="py-2 px-3 text-center"><span class="inline-block w-4 h-4 rounded-full bg-emerald-glow/60"></span></td>
+          <td class="py-2 px-3 text-center"><span class="inline-block w-4 h-4 rounded-full bg-emerald-glow/60"></span></td>
+          <td class="py-2 px-3 text-center"><span class="inline-block w-4 h-4 rounded-full ${isFailed ? 'bg-rose-pulse animate-ping' : 'bg-emerald-glow'}"></span></td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // Render Task Table View
+  function renderTaskTableView(data) {
+    const nodes = data.nodes || [];
+    const tbody = $('task-list-body');
+
+    tbody.innerHTML = nodes.map(n => {
+      const isFailed = n.status === 'failed';
+      const isSuccess = n.status === 'success';
+      const badge = isFailed ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-pulse/20 text-rose-pulse border border-rose-pulse/30">FAILED</span>' :
+                    isSuccess ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-glow/20 text-emerald-glow border border-emerald-glow/30">SUCCESS</span>' :
+                    '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-surface-2 text-slate-400">PENDING</span>';
+
+      return `
+        <tr class="border-b border-white/5 hover:bg-white/[0.02]">
+          <td class="py-3 px-4">${badge}</td>
+          <td class="py-3 px-4">
+            <div class="font-mono font-bold text-white text-xs cursor-pointer hover:text-cyan-accent" onclick="openTaskDrawer('${esc(n.id)}')">${esc(n.id)}</div>
+            <div class="text-[11px] text-slate-500">${esc(n.name)}</div>
+          </td>
+          <td class="py-3 px-4 font-mono text-cyan-accent text-xs">${esc(n.layer)}</td>
+          <td class="py-3 px-4 text-xs font-mono text-amber-accent">${esc(n.tier)}</td>
+          <td class="py-3 px-4 font-mono text-xs">${n.tests_total ? `${n.tests_failed}/${n.tests_total}` : '—'}</td>
+          <td class="py-3 px-4 font-mono text-xs text-slate-400">${n.duration_ms}ms</td>
+          <td class="py-3 px-4 text-[11px] font-mono text-slate-500 truncate max-w-[160px]">${(n.depends_on || []).join(', ') || 'root'}</td>
+          <td class="py-3 px-4 text-right">
+            <button class="px-2.5 py-1 rounded-lg text-xs font-medium bg-surface-2/80 text-slate-300 hover:text-white border border-white/10" onclick="runSingleTask('${esc(n.id)}')">
+              ▶ Run
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // Open Task Details Drawer and fetch Logs
+  async function openTaskDrawer(taskId) {
+    activeTaskForDrawer = taskId;
+    $('drawer-task-id').textContent = taskId;
+    $('drawer-task-status').textContent = 'Loading...';
+    $('drawer-log-content').textContent = 'Loading task instance log...';
+    $('task-drawer').classList.remove('hidden');
+
+    try {
+      const res = await fetch(`/api/pipeline/tasks/${encodeURIComponent(taskId)}/logs`);
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+
+      $('drawer-task-name').textContent = data.name;
+      $('drawer-task-status').textContent = data.status.toUpperCase();
+      $('drawer-task-status').className = data.status === 'failed' ? 'px-2 py-0.5 rounded text-[10px] font-bold bg-rose-pulse/20 text-rose-pulse border border-rose-pulse/30' :
+                                          data.status === 'success' ? 'px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-glow/20 text-emerald-glow border border-emerald-glow/30' :
+                                          'px-2 py-0.5 rounded text-[10px] font-bold bg-surface-2 text-slate-400';
+
+      $('drawer-log-content').textContent = data.log_text;
+      $('drawer-sql-content').textContent = data.compiled_sql || '-- Không có compiled SQL cho task này (Pure Python / Ingestion)';
+
+      // Metadata
+      const node = (currentDagData.nodes || []).find(n => n.id === taskId) || {};
+      $('meta-layer').textContent = node.layer || '—';
+      $('meta-tier').textContent = node.tier || '—';
+      $('meta-table').textContent = node.target_table || '—';
+      $('meta-owner').textContent = node.owner || '—';
+      $('meta-duration').textContent = `${data.duration_ms} ms`;
+      $('meta-run-id').textContent = data.run_id;
+
+      $('meta-dq-list').innerHTML = (node.dq_checks || []).map(c => `<li>• ${esc(c)}</li>`).join('') || '<li>• Không có DQ checks</li>';
+
+    } catch (err) {
+      $('drawer-log-content').textContent = 'Lỗi tải log: ' + err.message;
+    }
+  }
+
+  // Run Single Task
+  async function runSingleTask(taskId) {
+    showLoading(`Đang chạy task ${taskId}...`);
+    try {
+      await fetch(`/api/jobs/${encodeURIComponent(taskId)}/run`, { method: 'POST' });
+      hideLoading();
+      await loadDAG();
+      if (activeTaskForDrawer === taskId) {
+        await openTaskDrawer(taskId);
+      }
+    } catch (err) {
+      hideLoading();
+      alert('Lỗi: ' + err.message);
+    }
+  }
+
+  // Initialize
+  document.addEventListener('DOMContentLoaded', () => {
+    lucide.createIcons();
+    loadDAG();
+
+    // Toggle Scheduler
+    $('btn-toggle-scheduler').addEventListener('click', toggleScheduler);
+
+    // Trigger entire DAG
+    $('btn-trigger-dag').addEventListener('click', triggerDagRun);
+
+    // Refresh button
+    $('btn-refresh-dag').addEventListener('click', loadDAG);
+
+    // Drawer close
+    $('drawer-close').addEventListener('click', () => $('task-drawer').classList.add('hidden'));
+    $('drawer-overlay').addEventListener('click', () => $('task-drawer').classList.add('hidden'));
+
+    // Drawer tabs
+    $$('.dtab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.dtab;
+        $$('.dtab-btn').forEach(b => {
+          b.classList.remove('text-cyan-accent', 'border-cyan-accent');
+          b.classList.add('text-slate-400', 'border-transparent');
+        });
+        btn.classList.add('text-cyan-accent', 'border-cyan-accent');
+        btn.classList.remove('text-slate-400', 'border-transparent');
+
+        $$('.dtab-panel').forEach(p => p.classList.add('hidden'));
+        $(`dpanel-${tab}`).classList.remove('hidden');
+      });
+    });
+
+    // Drawer re-run button
+    $('btn-drawer-run-task').addEventListener('click', () => {
+      if (activeTaskForDrawer) runSingleTask(activeTaskForDrawer);
+    });
+
+    // Copy log button
+    $('btn-copy-log').addEventListener('click', () => {
+      const text = $('drawer-log-content').textContent;
+      navigator.clipboard.writeText(text);
+      $('btn-copy-log').textContent = '✓ Copied!';
+      setTimeout(() => $('btn-copy-log').innerHTML = '<i data-lucide="copy" class="w-3 h-3"></i> Copy log', 1500);
+    });
+
+    // View switching tabs
+    $$('.view-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const view = tab.dataset.view;
+        $$('.view-tab').forEach(t => {
+          t.classList.remove('tab-active');
+          t.classList.add('tab-inactive');
+        });
+        tab.classList.add('tab-active');
+        tab.classList.remove('tab-inactive');
+
+        $$('.view-panel').forEach(p => p.classList.add('hidden'));
+        $(`view-${view}`).classList.remove('hidden');
+      });
+    });
+  });
+  </script>
+</body>
+</html>

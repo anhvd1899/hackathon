@@ -1,0 +1,2835 @@
+<!DOCTYPE html>
+<!--
+  web/frontend/static/index.html — Data Reliability Agent SPA
+  OpenDesign Premium: Linear / Datadog Dark Mode + Glassmorphism
+  Unified Single Page Application:
+    1. 🛡️ Observability & Incident Hub + Multi-Agent Mission Control
+    2. 🔀 Airflow-style Visual SQL DAG & Pipeline Orchestrator
+    3. 📊 DBeaver-style SQL Studio Explorer
+-->
+<html lang="vi" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Reliability Agent · Mission Control & Orchestrator</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: { DEFAULT: '#080C14', 1: '#0F172A', 2: '#1E293B', 3: '#334155' },
+            emerald: { glow: '#10B981' },
+            rose: { pulse: '#F43F5E' },
+            amber: { accent: '#F59E0B' },
+            cyan: { accent: '#06B6D4' },
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Cascadia Code', 'Consolas', 'monospace'],
+          },
+          animation: {
+            'breathing': 'breathing 2.4s ease-in-out infinite',
+            'pulse-ring': 'pulseRing 1.8s cubic-bezier(0.4,0,0.6,1) infinite',
+            'glow': 'glow 2s ease-in-out infinite alternate',
+            'slide-in-right': 'slideInRight 0.3s cubic-bezier(0.16,1,0.3,1)',
+            'fade-in': 'fadeIn 0.2s ease-out',
+            'fade-in-up': 'fadeInUp 0.3s ease-out',
+          },
+          keyframes: {
+            breathing: {
+              '0%, 100%': { opacity: '1', transform: 'scale(1)' },
+              '50%': { opacity: '0.4', transform: 'scale(0.85)' },
+            },
+            pulseRing: {
+              '0%': { transform: 'scale(1)', opacity: '0.8' },
+              '100%': { transform: 'scale(2.2)', opacity: '0' },
+            },
+            glow: {
+              '0%': { boxShadow: '0 0 5px rgba(16,185,129,0.3), 0 0 20px rgba(16,185,129,0.1)' },
+              '100%': { boxShadow: '0 0 20px rgba(16,185,129,0.5), 0 0 40px rgba(16,185,129,0.2)' },
+            },
+            slideInRight: {
+              '0%': { transform: 'translateX(100%)', opacity: '0' },
+              '100%': { transform: 'translateX(0)', opacity: '1' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            fadeInUp: {
+              '0%': { opacity: '0', transform: 'translateY(10px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* === Base Theme & Grid Pattern === */
+    body {
+      background-color: #080C14;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -15%, rgba(16,185,129,0.06) 0%, transparent 65%),
+        radial-gradient(ellipse 60% 40% at 85% 100%, rgba(6,182,212,0.05) 0%, transparent 65%),
+        linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+      min-height: 100vh;
+    }
+
+    /* === Glassmorphism Card === */
+    .glass-card {
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    /* === Scrollbar === */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+    /* === Interaction Transitions === */
+    button, a, input, select, textarea {
+      transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+      transition-duration: 150ms;
+      transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* === Navigation Tab Pill === */
+    .nav-pill-active {
+      background: rgba(6, 182, 212, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      box-shadow: 0 0 15px rgba(6, 182, 212, 0.15);
+    }
+    .nav-pill-inactive {
+      color: #94a3b8;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(30, 41, 59, 0.5);
+    }
+    .nav-pill-inactive:hover {
+      color: #e2e8f0;
+      border-color: rgba(255, 255, 255, 0.18);
+      background: rgba(30, 41, 59, 0.8);
+    }
+
+    /* Highlight table row */
+    tr.row-failed { background-color: rgba(244, 63, 94, 0.06); }
+    tr.row-failed:hover { background-color: rgba(244, 63, 94, 0.12); }
+    tr.row-selected { background-color: rgba(6, 182, 212, 0.12) !important; }
+
+    /* DAG Nodes */
+    .dag-node {
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .dag-node:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+  </style>
+</head>
+
+<body class="font-sans text-slate-200 antialiased flex flex-col min-h-screen">
+
+  <!-- ============================================================ -->
+  <!-- HEADER & PRIMARY SPA NAVIGATION                             -->
+  <!-- ============================================================ -->
+  <header class="sticky top-0 z-40 glass-card border-b border-white/10">
+    <div class="max-w-[1760px] mx-auto px-5 py-2.5 flex items-center justify-between gap-4 flex-wrap">
+
+      <!-- Left: Logo & Live Agent Runtime -->
+      <div class="flex items-center gap-3">
+        <span class="text-2xl drop-shadow-md cursor-pointer" onclick="switchView('hub')">🛡️</span>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-sm font-bold tracking-tight text-white cursor-pointer" onclick="switchView('hub')">DATA RELIABILITY AGENT</h1>
+            <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-cyan-accent/15 text-cyan-accent border border-cyan-accent/25">v2.0</span>
+          </div>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-breathing absolute inline-flex h-full w-full rounded-full bg-emerald-glow"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-glow"></span>
+            </span>
+            <span class="text-[10px] font-medium text-emerald-glow tracking-wider uppercase" id="agent-status">LIVE AGENT RUNTIME</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center: PRIMARY SPA VIEW SWITCHER -->
+      <div class="flex items-center gap-1.5 bg-surface-1/90 p-1 rounded-xl border border-white/10 shadow-inner">
+        <button data-view="hub" class="spa-nav-btn nav-pill-active px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5" onclick="switchView('hub')">
+          <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> Incident & War Room
+        </button>
+        <button data-view="dag" class="spa-nav-btn nav-pill-inactive px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5" onclick="switchView('dag')">
+          <i data-lucide="git-merge" class="w-3.5 h-3.5"></i> Pipeline DAG & Tasks
+        </button>
+        <button data-view="sql" class="spa-nav-btn nav-pill-inactive px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5" onclick="switchView('sql')">
+          <i data-lucide="database" class="w-3.5 h-3.5"></i> SQL Studio (DBeaver)
+        </button>
+      </div>
+
+      <!-- Right: Scenario Controls & Quick Actions -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <!-- 1-Click Scenarios -->
+        <button id="btn-case1" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-pulse/10 text-rose-pulse border border-rose-pulse/30 hover:bg-rose-pulse/20 active:scale-95" title="Kích hoạt test fail và tạo sự cố">
+          <i data-lucide="zap" class="w-3 h-3"></i> Case 1: NULL Check
+        </button>
+        <button id="btn-case2" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-accent/10 text-amber-accent border border-amber-accent/30 hover:bg-amber-accent/20 active:scale-95" title="Tạo anomaly tùy ý">
+          <i data-lucide="bug" class="w-3 h-3"></i> Custom Anomaly
+        </button>
+        <button id="btn-reset" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-surface-2 text-slate-300 border border-white/10 hover:bg-surface-3 active:scale-95">
+          <i data-lucide="refresh-cw" class="w-3 h-3"></i> Reset
+        </button>
+
+        <!-- Scheduler Mode Indicator & Toggle -->
+        <button id="btn-top-scheduler-toggle" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium border border-white/10 bg-surface-2/90 text-slate-300 hover:border-white/20 active:scale-95" title="Bấm để bật/tắt Scheduler tự động">
+          <span class="w-2 h-2 rounded-full bg-emerald-glow" id="top-scheduler-dot"></span>
+          <span id="top-scheduler-text">⏱️ Auto</span>
+        </button>
+
+        <!-- dbt Lineage Graph Drawer Trigger -->
+        <button id="btn-lineage" class="p-1.5 rounded-lg bg-surface-2 border border-white/10 text-slate-400 hover:text-cyan-accent hover:bg-surface-3" title="Mở dbt Lineage Graph">
+          <i data-lucide="network" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Notification Bell -->
+        <div class="relative">
+          <button id="bell" class="relative p-1.5 rounded-lg bg-surface-2 border border-white/10 hover:border-white/20 text-slate-400 hover:text-white" aria-label="Thông báo">
+            <i data-lucide="bell" class="w-4 h-4"></i>
+            <span id="bell-badge" class="hidden absolute -top-1 -right-1 min-w-[17px] h-[17px] bg-rose-pulse text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">0</span>
+          </button>
+          <!-- Notification Dropdown -->
+          <div id="notif-panel" class="hidden absolute right-0 top-10 w-[380px] max-h-[420px] overflow-auto glass-card rounded-xl shadow-2xl shadow-black/60 z-50 animate-fade-in">
+            <div class="sticky top-0 flex justify-between items-center px-4 py-2.5 border-b border-white/10 bg-surface-1/95 backdrop-blur-md">
+              <span class="text-xs font-semibold text-white uppercase tracking-wider">Thông báo</span>
+              <button id="mark-read" class="text-[11px] text-cyan-accent hover:text-cyan-300">Đánh dấu đã đọc</button>
+            </div>
+            <div id="notif-list" class="p-2 space-y-1"></div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ============================================================ -->
+  <!-- VIEW CONTAINER (SPA SECTIONS)                                -->
+  <!-- ============================================================ -->
+  <main class="max-w-[1760px] mx-auto px-5 py-5 flex-1 flex flex-col w-full">
+
+    <!-- ======================================================== -->
+    <!-- VIEW 1: OBSERVABILITY & AGENT MISSION CONTROL             -->
+    <!-- ======================================================== -->
+    <div id="spa-view-hub" class="spa-view space-y-5">
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+
+        <!-- LEFT COLUMN (60%): Observability Hub -->
+        <div class="xl:col-span-7 space-y-5">
+
+          <!-- 3 KPI Cards -->
+          <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <!-- Health Index -->
+            <div class="glass-card rounded-2xl p-4 relative overflow-hidden group hover:border-white/20">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Data Health Index</span>
+                <i data-lucide="heart-pulse" class="w-4 h-4 text-emerald-glow"></i>
+              </div>
+              <div class="mt-2 flex items-baseline gap-1">
+                <span id="kpi-health" class="text-3xl font-extrabold text-emerald-glow">—</span>
+                <span class="text-xs text-emerald-glow/70">%</span>
+              </div>
+              <div class="mt-2 w-full bg-surface-3/50 rounded-full h-1.5 overflow-hidden">
+                <div id="kpi-health-bar" class="h-full rounded-full bg-gradient-to-r from-emerald-glow to-emerald-400" style="width:0%"></div>
+              </div>
+              <div id="kpi-health-hint" class="mt-1.5 text-[10px] text-slate-500 font-mono"></div>
+            </div>
+
+            <!-- Active DQ Incidents -->
+            <div class="glass-card rounded-2xl p-4 relative overflow-hidden group hover:border-white/20">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Active DQ Incidents</span>
+                <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-pulse"></i>
+              </div>
+              <div class="mt-2 flex items-center gap-2.5">
+                <span id="kpi-incidents" class="text-3xl font-extrabold text-white">0</span>
+                <span id="kpi-incidents-badge" class="hidden px-2 py-0.5 rounded text-[9px] font-bold bg-rose-pulse/20 text-rose-pulse border border-rose-pulse/30 animate-breathing">CRITICAL</span>
+              </div>
+              <div id="kpi-incidents-hint" class="mt-2 text-[10px] text-slate-500 font-mono"></div>
+            </div>
+
+            <!-- Quarantined Records -->
+            <div class="glass-card rounded-2xl p-4 relative overflow-hidden group hover:border-white/20">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Quarantine Storage</span>
+                <i data-lucide="shield-check" class="w-4 h-4 text-cyan-accent"></i>
+              </div>
+              <div class="mt-2 flex items-baseline gap-1">
+                <span id="kpi-quarantined" class="text-3xl font-extrabold text-white">0</span>
+                <span class="text-xs text-slate-500">resolved</span>
+              </div>
+              <div id="kpi-quarantine-hint" class="mt-2 text-[10px] text-slate-500 font-mono"></div>
+            </div>
+          </section>
+
+          <!-- Pipeline Flows & Job Status Table -->
+          <section class="glass-card rounded-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-white/10 flex-wrap gap-2 bg-surface-1/40">
+              <div class="flex items-center gap-2">
+                <i data-lucide="git-commit" class="w-4 h-4 text-cyan-accent"></i>
+                <h2 class="text-xs font-bold uppercase tracking-wider text-white">Pipeline Flows & DQ Gates</h2>
+                <span id="jobs-badge-count" class="text-[11px] font-mono text-slate-500"></span>
+              </div>
+              <div class="flex items-center gap-2.5">
+                <!-- Search -->
+                <input id="job-search" type="text" placeholder="Tìm job..." class="bg-surface-2/80 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-cyan-accent/40 w-32 font-mono" />
+                <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
+                  <input type="checkbox" id="filter-only-failed" class="rounded border-white/20 bg-surface-2 text-cyan-accent" />
+                  <span>Chỉ job lỗi</span>
+                </label>
+                <button id="btn-hub-run-all" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-surface-2 text-slate-300 border border-white/10 hover:bg-surface-3 hover:text-white active:scale-95">
+                  <i data-lucide="play" class="w-3 h-3 text-emerald-glow fill-current"></i> Run All
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-auto max-h-[380px]">
+              <table class="w-full text-xs">
+                <thead class="sticky top-0 z-10 bg-surface-1/95 border-b border-white/5 text-slate-500 uppercase text-[10px]">
+                  <tr>
+                    <th class="text-left px-4 py-2.5">Status</th>
+                    <th class="text-left px-4 py-2.5">Job / Flow</th>
+                    <th class="text-left px-4 py-2.5">Layer</th>
+                    <th class="text-left px-4 py-2.5">Tier</th>
+                    <th class="text-left px-4 py-2.5">DQ Tests</th>
+                    <th class="text-left px-4 py-2.5">Last Run</th>
+                    <th class="text-right px-4 py-2.5">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="jobs-body" class="text-slate-300 divide-y divide-white/5">
+                  <tr><td colspan="7" class="p-6 text-center text-slate-500 text-xs">Đang tải trạng thái flows...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- Blast Radius Dashboards -->
+          <section class="glass-card rounded-2xl p-4">
+            <div class="flex items-center justify-between mb-2.5">
+              <div class="flex items-center gap-2">
+                <i data-lucide="radio" class="w-4 h-4 text-amber-accent"></i>
+                <span class="text-xs font-bold text-slate-300 uppercase tracking-wider">Downstream Dashboards at Risk</span>
+              </div>
+              <span class="text-[10px] text-slate-500 font-mono">Impact Radar</span>
+            </div>
+            <div id="blast-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+          </section>
+
+          <!-- Recent Runs -->
+          <section class="glass-card rounded-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-2.5 border-b border-white/10 bg-surface-1/40">
+              <div class="flex items-center gap-2">
+                <i data-lucide="activity" class="w-4 h-4 text-slate-500"></i>
+                <span class="text-xs font-bold text-white uppercase tracking-wider">Execution History</span>
+              </div>
+              <span id="runs-count" class="text-[10px] text-slate-500 font-mono"></span>
+            </div>
+            <div class="overflow-auto max-h-[160px]">
+              <table class="w-full text-xs">
+                <thead class="sticky top-0 bg-surface-1/95 border-b border-white/5 text-[10px] text-slate-500 uppercase">
+                  <tr>
+                    <th class="text-left px-4 py-1.5">Time</th>
+                    <th class="text-left px-4 py-1.5">Job</th>
+                    <th class="text-left px-4 py-1.5">Result</th>
+                    <th class="text-left px-4 py-1.5">Duration</th>
+                    <th class="text-left px-4 py-1.5">Message</th>
+                  </tr>
+                </thead>
+                <tbody id="runs-body" class="text-slate-400 divide-y divide-white/5 font-mono text-[11px]"></tbody>
+              </table>
+            </div>
+          </section>
+
+        </div>
+
+        <!-- RIGHT COLUMN (50%): REDESIGNED MULTI-AGENT MISSION CONTROL -->
+        <div class="xl:col-span-5 space-y-4">
+
+          <!-- Mission Control Header Card -->
+          <div class="glass-card rounded-2xl p-4 border border-cyan-accent/20 bg-gradient-to-br from-surface-1 via-surface-1 to-[#0a1526]">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg bg-cyan-accent/15 border border-cyan-accent/30 flex items-center justify-center">
+                  <i data-lucide="cpu" class="w-4 h-4 text-cyan-accent"></i>
+                </div>
+                <div>
+                  <h2 class="text-xs font-bold text-white tracking-wide uppercase">Multi-Agent Remediation Matrix</h2>
+                  <p class="text-[10px] text-slate-400">Maker–Checker Architecture (Data SRE ⚡ Auditor)</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab Switcher for Right Column -->
+            <div class="flex items-center gap-1 mb-2 mt-1">
+              <button id="tab-matrix-btn" class="right-panel-tab active px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-slate-800/80 border border-cyan-500/40 text-cyan-400">
+                <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                <span>📋 Remediation Matrix</span>
+              </button>
+              <button id="tab-chat-btn" class="right-panel-tab inactive px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-surface-2 text-slate-400 hover:text-slate-300">
+                <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
+                <span>💬 AI War Room Chat</span>
+                <span class="inline-flex items-center gap-0.5">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-glow animate-pulse"></span>
+                  <span class="text-[9px] text-emerald-glow/80">LIVE</span>
+                </span>
+              </button>
+            </div>
+
+            <!-- Workflow Progress Stepper -->
+            <div class="py-2 border-t border-white/5" id="stepper"></div>
+          </div>
+
+          <!-- Active Incident Dossier / Agent Workspace Container -->
+          <div id="agent-workspace" class="space-y-4">
+
+            <!-- TAB 1: Remediation Matrix (Default) -->
+            <div id="tab-matrix" class="space-y-4 right-panel-content active" style="display:block;">
+
+              <!-- Empty State when no incident selected -->
+              <div id="agent-idle-state" class="glass-card rounded-2xl p-6 text-center flex flex-col items-center justify-center py-12 space-y-3">
+                <div class="w-12 h-12 rounded-2xl bg-emerald-glow/10 border border-emerald-glow/30 flex items-center justify-center">
+                  <i data-lucide="shield-check" class="w-6 h-6 text-emerald-glow"></i>
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-slate-100">Hệ thống đang hoạt động an toàn</h3>
+                  <p class="text-xs text-slate-400 max-w-sm mt-1 leading-relaxed">
+                    Tất cả các pipeline flow đang kiểm tra chất lượng dữ liệu bình thường, 0 sự cố đang mở.
+                  </p>
+                </div>
+                <div class="grid grid-cols-2 gap-2 w-full max-w-xs pt-1 font-mono text-xs">
+                <div class="p-2 rounded-xl bg-surface-2/80 border border-white/5">
+                  <span class="text-emerald-glow font-bold">11 / 11</span>
+                  <div class="text-[10px] text-slate-500">Flows Passing</div>
+                </div>
+                <div class="p-2 rounded-xl bg-surface-2/80 border border-white/5">
+                  <span class="text-slate-300 font-bold">0 Active</span>
+                  <div class="text-[10px] text-slate-500">DQ Violations</div>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 pt-1">
+                Bấm vào một flow lỗi ở bảng bên trái để bắt đầu điều tra.
+              </p>
+            </div>
+
+            <!-- Active Incident Card (Maker: Agent 1 SRE Dossier - View Only + Redirect to Chat) -->
+            <div id="dossier-card" class="hidden glass-card rounded-2xl p-5 border-l-4 border-l-rose-pulse space-y-4 animate-fade-in-up">
+              <!-- Incident Header -->
+              <div class="flex items-start justify-between">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-pulse/20 text-rose-pulse border border-rose-pulse/30" id="inc-sev-badge">CRITICAL</span>
+                    <span class="font-mono text-xs font-bold text-cyan-accent" id="inc-id">INC-xxxx</span>
+                    <span class="text-[10px] text-slate-500 font-mono" id="inc-meta-time"></span>
+                  </div>
+                  <h3 class="text-sm font-bold text-white mt-1.5" id="inc-title">Data Quality Violation</h3>
+                  <div class="text-[11px] font-mono text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                    <span>Bảng: <code class="text-emerald-glow" id="inc-table">stg_orders</code></span>
+                    <span>·</span>
+                    <span>Cột: <code class="text-amber-accent" id="inc-col">customer_id</code></span>
+                    <span>·</span>
+                    <span>Test: <span id="inc-test" class="text-slate-300">not_null</span></span>
+                  </div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-2xl font-extrabold text-rose-pulse font-mono" id="inc-rows">0</div>
+                  <div class="text-[9px] uppercase tracking-wider text-slate-500">Dòng vi phạm</div>
+                </div>
+              </div>
+
+              <!-- SRE Root Cause Diagnosis Box -->
+              <div class="p-3.5 rounded-xl bg-surface-2/70 border border-white/5 space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                  <div class="flex items-center gap-1.5 font-bold text-slate-200">
+                    <i data-lucide="search" class="w-3.5 h-3.5 text-cyan-accent"></i>
+                    <span>Nguyên Nhân Gốc Rễ (Agent 1 SRE Diagnosis)</span>
+                  </div>
+                  <span id="inc-confidence" class="font-mono font-bold text-emerald-glow text-[11px]">98% Confidence</span>
+                </div>
+                <p id="inc-root-cause" class="text-xs text-slate-300 leading-relaxed"></p>
+                <div class="text-[11px] text-slate-500 font-mono flex items-center justify-between pt-1 border-t border-white/5">
+                  <div class="flex items-center gap-1.5">
+                    <span>Nguồn nghi vấn:</span>
+                    <code id="inc-source" class="text-cyan-accent bg-surface-3/50 px-1.5 py-0.5 rounded"></code>
+                  </div>
+                  <span id="inc-occurrences" class="text-slate-500"></span>
+                </div>
+              </div>
+
+              <!-- Proposed Remediation SQL Terminal -->
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between text-xs text-slate-400">
+                  <span class="font-bold text-emerald-glow flex items-center gap-1">
+                    <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Kịch Bản SQL Khắc Phục Đề Xuất
+                  </span>
+                  <button id="btn-copy-sql" class="text-[10px] text-cyan-accent hover:underline flex items-center gap-1">
+                    <i data-lucide="copy" class="w-3 h-3"></i> Copy SQL
+                  </button>
+                </div>
+                <div class="bg-[#05080F] rounded-xl border border-white/10 p-3 overflow-hidden font-mono text-[11px] select-text">
+                  <pre id="inc-sql-code" class="text-emerald-glow/90 overflow-auto max-h-[130px] leading-relaxed"></pre>
+                </div>
+                <div id="inc-verify-wrap" class="text-[10px] text-slate-500 font-mono truncate">
+                  Verify query: <code id="inc-verify-sql" class="text-slate-400"></code>
+                </div>
+              </div>
+
+              <!-- Agent 2 Auditor Verification Seal (Displays if audit exists) -->
+              <div id="auditor-card" class="hidden p-3.5 rounded-xl bg-amber-accent/5 border border-amber-accent/30 space-y-2.5 animate-fade-in-up">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="badge-check" class="w-4 h-4 text-amber-accent"></i>
+                    <div>
+                      <h4 class="text-xs font-bold text-white uppercase tracking-wider">Nghiệm Thu Độc Lập (Agent 2 Auditor)</h4>
+                    </div>
+                  </div>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-glow/15 text-emerald-glow border border-emerald-glow/30" id="audit-verdict-badge">
+                    ✅ AUDIT PASSED
+                  </span>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center text-xs font-mono" id="audit-checks-grid">
+                  <!-- Check items injected by JS -->
+                </div>
+              </div>
+
+              <!-- ============================================================ -->
+              <!-- WRITE–AUDIT–PUBLISH · Two-Phase Human-in-the-loop            -->
+              <!-- ============================================================ -->
+              <div id="wap-panel" class="hidden space-y-3 animate-fade-in-up">
+
+                <!-- Trạng thái + tiến trình 2 cửa phê duyệt -->
+                <div class="p-3.5 rounded-xl bg-surface-2/70 border border-white/10 space-y-2.5">
+                  <div class="flex items-center justify-between gap-2 flex-wrap">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="git-branch-plus" class="w-4 h-4 text-cyan-accent"></i>
+                      <span class="text-xs font-bold text-white uppercase tracking-wider">Write · Audit · Publish</span>
+                    </div>
+                    <span id="wap-status-badge" class="px-2 py-0.5 rounded text-[10px] font-bold border">—</span>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                    <div class="p-2 rounded-lg bg-surface-1/70 border border-white/5">
+                      <div class="text-[9px] uppercase text-slate-500">Bảng thật (Production)</div>
+                      <div id="wap-prod-table" class="text-amber-accent truncate">—</div>
+                    </div>
+                    <div class="p-2 rounded-lg bg-surface-1/70 border border-emerald-glow/20">
+                      <div class="text-[9px] uppercase text-slate-500">Bảng bóng (Staging)</div>
+                      <div id="wap-shadow-table" class="text-emerald-glow truncate">—</div>
+                    </div>
+                  </div>
+                  <p id="wap-hint" class="text-[11px] text-slate-400 leading-relaxed"></p>
+                </div>
+
+                <!-- Bảng đối chiếu Diff: trước vs sau (trên staging) -->
+                <div id="wap-diff-wrap" class="hidden rounded-xl border border-emerald-glow/25 bg-emerald-glow/[0.04] overflow-hidden">
+                  <div class="px-3 py-2 border-b border-emerald-glow/20 flex items-center gap-2">
+                    <i data-lucide="diff" class="w-3.5 h-3.5 text-emerald-glow"></i>
+                    <span class="text-[11px] font-bold text-emerald-glow uppercase tracking-wider">Đối chiếu trước khi Publish</span>
+                  </div>
+                  <table class="w-full text-[11px] font-mono">
+                    <thead class="text-[9px] uppercase text-slate-500 border-b border-white/5">
+                      <tr>
+                        <th class="text-left px-3 py-1.5">Chỉ số</th>
+                        <th class="text-right px-3 py-1.5">Bảng thật (hiện tại)</th>
+                        <th class="text-right px-3 py-1.5">Bảng bóng (sau vá)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="wap-diff-body" class="divide-y divide-white/5"></tbody>
+                  </table>
+                </div>
+
+                <!-- Tab xem trước dữ liệu: Live vs Shadow -->
+                <div class="rounded-xl border border-white/10 overflow-hidden">
+                  <div class="flex items-center justify-between px-3 py-2 bg-surface-1/60 border-b border-white/10">
+                    <div class="flex items-center gap-1 bg-surface-2/80 p-0.5 rounded-lg border border-white/10">
+                      <button id="tab-live" class="wap-tab px-2.5 py-1 rounded-md text-[10px] font-bold nav-pill-active">
+                        🗂️ Live Table
+                      </button>
+                      <button id="tab-shadow" class="wap-tab px-2.5 py-1 rounded-md text-[10px] font-bold nav-pill-inactive">
+                        🧪 Shadow Preview
+                      </button>
+                    </div>
+                    <span id="wap-preview-meta" class="text-[10px] text-slate-500 font-mono"></span>
+                  </div>
+                  <div class="overflow-auto max-h-[200px]">
+                    <table class="w-full text-[10px] font-mono">
+                      <thead id="wap-preview-head" class="sticky top-0 bg-surface-1/95 text-[9px] uppercase text-slate-500 border-b border-white/5"></thead>
+                      <tbody id="wap-preview-body" class="divide-y divide-white/5 text-slate-400"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Hộp cảnh báo khi nghiệm thu thất bại -->
+                <div id="wap-triage-alert" class="hidden p-3.5 rounded-xl bg-rose-pulse/10 border border-rose-pulse/40 space-y-1.5">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="alert-octagon" class="w-4 h-4 text-rose-pulse"></i>
+                    <span class="text-xs font-bold text-rose-pulse uppercase tracking-wider">Remediation Failed — dữ liệu thật vẫn an toàn</span>
+                  </div>
+                  <p id="wap-triage-reason" class="text-[11px] text-slate-300 leading-relaxed font-mono"></p>
+                  <p class="text-[10px] text-slate-400">
+                    Bảng production <strong>chưa bị thay đổi</strong> vì mọi lệnh vá chỉ chạy trên bảng bóng. Anh chọn một trong ba hướng dưới đây.
+                  </p>
+                </div>
+
+                <!-- Gate actions moved to War Room Chat — dashboard shows status bar only -->
+                <div class="mt-4 p-3 rounded-xl bg-slate-900/80 border border-cyan-500/30 flex items-center justify-between">
+                  <div class="flex items-center gap-2 text-xs text-slate-300">
+                    <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                    <span>Hành động cần phê duyệt: Thao tác đang được mở tại <strong>War Room Chat</strong></span>
+                  </div>
+                  <button onclick="switchRightPanelTab('chat')" class="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all">
+                    <span>Chuyển sang Chat để Duyệt</span>
+                    <span>→</span>
+                  </button>
+                </div>
+
+              </div>
+
+            </div>
+
+            <!-- TAB 2: AI War Room Chat (Hidden by default) -->
+            <div id="tab-chat" class="right-panel-content inactive" style="display:none;">
+              <div class="glass-card rounded-2xl border border-cyan-500/20 overflow-hidden flex flex-col min-h-[700px]">
+                <div class="px-4 py-3 border-b border-white/5 bg-gradient-to-r from-surface-1/80 to-surface-2/80">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-accent/20 to-blue-600/20 border border-cyan-accent/30 flex items-center justify-center">
+                        <i data-lucide="bot" class="w-4 h-4 text-cyan-accent"></i>
+                      </div>
+                      <div>
+                        <h3 class="text-sm font-bold text-white">💬 AI War Room Chat</h3>
+                        <p class="text-[10px] text-slate-400">Chat trực tiếp với Agent 1 (SRE) & Agent 2 (Auditor)</p>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-glow/10 border border-emerald-glow/30">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-glow animate-pulse"></span>
+                        <span class="text-[10px] font-bold text-emerald-glow">LIVE</span>
+                      </span>
+                      <button onclick="switchRightPanelTab('matrix')" class="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-surface-2 text-slate-400 hover:text-white hover:bg-surface-3 border border-white/10">
+                        ← Quay lại Matrix
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Chainlit Iframe Container (lazy-load khi mở tab lần đầu) -->
+                <div class="flex-1 overflow-hidden bg-[#0B0F17] relative" style="min-height:650px">
+                  <div id="chainlit-loading" class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-500 text-xs">
+                    <div class="w-8 h-8 border-2 border-white/10 border-t-cyan-400 rounded-full animate-spin"></div>
+                    <span>Đang tải AI War Room…</span>
+                    <a href="/chat" target="_blank" rel="noopener" class="text-cyan-400 hover:underline">Mở trong tab mới ↗</a>
+                  </div>
+                  <iframe
+                    src="/chat/"
+                    id="chainlit-iframe"
+                    class="w-full relative z-10"
+                    style="height:650px;border:none;display:block;"
+                    title="AI War Room Chat">
+                  </iframe>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- VIEW 2: AIRFLOW-STYLE PIPELINE ORCHESTRATOR & DAG        -->
+    <!-- ======================================================== -->
+    <div id="spa-view-dag" class="spa-view hidden flex-1 flex flex-col space-y-4">
+
+      <!-- Orchestrator Control Bar -->
+      <div class="glass-card rounded-2xl px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-cyan-accent/10 border border-cyan-accent/30 flex items-center justify-center">
+            <i data-lucide="git-branch" class="w-4 h-4 text-cyan-accent"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-xs font-bold text-white tracking-wide uppercase">Pipeline Orchestrator</h2>
+              <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-accent/15 text-cyan-accent border border-cyan-accent/30">DAG: ecommerce_orders_elt</span>
+            </div>
+            <p class="text-[10px] text-slate-400">Topological Execution Order: Ingestion ➔ DQ Gate ➔ Staging ➔ Marts</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <!-- Scheduler Mode Toggle -->
+          <button id="btn-dag-scheduler-toggle" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all active:scale-95">
+            <span class="w-2 h-2 rounded-full" id="dag-scheduler-dot"></span>
+            <span id="dag-scheduler-label">Auto-Run</span>
+          </button>
+
+          <!-- Trigger Entire DAG -->
+          <button id="btn-dag-trigger-run" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-glow to-emerald-500 text-white shadow-md shadow-emerald-glow/20 hover:shadow-emerald-glow/40 active:scale-95">
+            <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i> Trigger DAG Run
+          </button>
+
+          <!-- Refresh -->
+          <button id="btn-dag-refresh" class="p-1.5 rounded-xl bg-surface-2 border border-white/10 text-slate-400 hover:text-white" title="Làm mới DAG">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- DAG Visual Canvas -->
+      <div class="glass-card rounded-2xl p-6 flex-1 flex flex-col overflow-hidden" style="min-height: 580px;">
+        <div class="flex items-center justify-between mb-4 text-xs text-slate-400">
+          <div class="flex items-center gap-2">
+            <i data-lucide="info" class="w-4 h-4 text-cyan-accent"></i>
+            <span>Click vào bất kỳ <strong>Task Node</strong> nào để xem <strong>Task Instance Log</strong> chuẩn Airflow</span>
+          </div>
+          <div class="flex items-center gap-3 text-[11px] font-mono">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-emerald-glow"></span> PASS</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-rose-pulse"></span> FAIL</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-slate-600"></span> PENDING</span>
+          </div>
+        </div>
+
+        <!-- 4 Columns of Pipeline Nodes -->
+        <div class="flex-1 overflow-auto border border-white/5 rounded-xl bg-[#060A13] p-6">
+          <div class="grid grid-cols-4 gap-8 min-w-[960px]">
+
+            <!-- Col 1: Ingestion -->
+            <div class="space-y-3">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-white/10 flex justify-between">
+                <span>1. Ingestion Sources</span>
+                <span class="font-mono text-slate-600">4 tasks</span>
+              </div>
+              <div id="dag-col-ingestion" class="space-y-2.5"></div>
+            </div>
+
+            <!-- Col 2: Gate -->
+            <div class="space-y-3">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-white/10 flex justify-between">
+                <span>2. Quality Gate</span>
+                <span class="font-mono text-amber-accent">DQ Check</span>
+              </div>
+              <div id="dag-col-gate" class="space-y-2.5"></div>
+            </div>
+
+            <!-- Col 3: Staging -->
+            <div class="space-y-3">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-white/10 flex justify-between">
+                <span>3. Staging (dbt)</span>
+                <span class="font-mono text-slate-600">2 models</span>
+              </div>
+              <div id="dag-col-staging" class="space-y-2.5"></div>
+            </div>
+
+            <!-- Col 4: Marts -->
+            <div class="space-y-3">
+              <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 pb-2 border-b border-white/10 flex justify-between">
+                <span>4. Marts (Serving)</span>
+                <span class="font-mono text-emerald-glow">Tier-0 Ready</span>
+              </div>
+              <div id="dag-col-marts" class="space-y-2.5"></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- VIEW 3: DBEAVER-STYLE SQL STUDIO EXPLORER                -->
+    <!-- ======================================================== -->
+    <div id="spa-view-sql" class="spa-view hidden flex-1 flex flex-col space-y-4" style="min-height: 700px;">
+
+      <div class="glass-card rounded-2xl flex-1 flex overflow-hidden border border-white/10">
+
+        <!-- Left Navigator: Schema & Tables Tree -->
+        <aside class="w-64 border-r border-white/10 flex flex-col shrink-0 bg-surface-1/40">
+          <div class="p-3 border-b border-white/10 flex items-center justify-between">
+            <div class="flex items-center gap-1.5 text-xs font-bold text-white uppercase tracking-wider">
+              <i data-lucide="database" class="w-3.5 h-3.5 text-cyan-accent"></i>
+              <span>DuckDB Navigator</span>
+            </div>
+            <button id="btn-refresh-tables" class="p-1 rounded text-slate-400 hover:text-white" title="Làm mới Schema">
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            </button>
+          </div>
+          <div class="p-2 border-b border-white/5">
+            <input id="sql-table-search" type="text" placeholder="Lọc bảng..." class="w-full bg-surface-2 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-200 placeholder-slate-500 outline-none font-mono" />
+          </div>
+          <div id="sql-tables-tree" class="flex-1 overflow-auto p-2 space-y-1 text-xs select-none">
+            <div class="p-4 text-center text-slate-500 text-xs">Đang tải cấu trúc bảng...</div>
+          </div>
+        </aside>
+
+        <!-- Right Main: SQL Editor & Spreadsheet Grid -->
+        <div class="flex-1 flex flex-col min-w-0 bg-[#070A12]">
+
+          <!-- SQL Editor Area -->
+          <div class="h-60 flex flex-col border-b border-white/10 bg-[#090E1A]">
+            <!-- Editor Toolbar -->
+            <div class="px-4 py-2 border-b border-white/10 flex items-center justify-between gap-3 bg-surface-1/50 shrink-0">
+              <div class="flex items-center gap-2">
+                <button id="btn-exec-sql" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-glow to-emerald-500 text-white shadow-md shadow-emerald-glow/20 hover:shadow-emerald-glow/40 active:scale-95">
+                  <i data-lucide="play" class="w-3 h-3 fill-current"></i> Run (Ctrl+Enter)
+                </button>
+                <select id="sql-templates" class="bg-surface-2 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-300 outline-none cursor-pointer">
+                  <option value="">⚡ Chọn mẫu truy vấn...</option>
+                  <option value="SELECT * FROM stg_orders LIMIT 50;">📋 SELECT * FROM stg_orders LIMIT 50</option>
+                  <option value="SELECT * FROM stg_orders WHERE customer_id IS NULL;">🔴 Tìm dòng NULL customer_id (stg_orders)</option>
+                  <option value="SELECT * FROM quarantine_orders;">🛡️ Bảng cách ly (quarantine_orders)</option>
+                  <option value="SELECT * FROM fact_orders LIMIT 50;">📦 SELECT * FROM fact_orders LIMIT 50</option>
+                  <option value="SELECT * FROM mart_daily_revenue ORDER BY order_date DESC LIMIT 30;">💰 Doanh thu ngày (mart_daily_revenue)</option>
+                  <option value="SELECT * FROM mart_customer_ltv ORDER BY total_spend DESC LIMIT 30;">⭐ Khách hàng LTV (mart_customer_ltv)</option>
+                </select>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="btn-export-csv" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-surface-2 border border-white/10 text-slate-300 hover:text-white">
+                  <i data-lucide="download" class="w-3 h-3 inline mr-1"></i> CSV
+                </button>
+              </div>
+            </div>
+
+            <!-- SQL Textarea -->
+            <textarea id="sql-query-input" spellcheck="false" class="flex-1 w-full p-4 bg-[#05080E] text-emerald-glow font-mono text-xs leading-relaxed resize-none outline-none border-0" placeholder="-- Nhập câu lệnh SQL chỉ-đọc (SELECT, SHOW, DESCRIBE)...
+SELECT * FROM stg_orders LIMIT 50;"></textarea>
+          </div>
+
+          <!-- Result Spreadsheet Grid -->
+          <div class="flex-1 flex flex-col min-h-0 bg-[#050810]">
+            <div class="px-4 py-2 border-b border-white/10 bg-surface-1/60 flex items-center justify-between text-xs shrink-0 font-mono text-[11px]">
+              <div class="flex items-center gap-2">
+                <span class="text-slate-400 font-bold uppercase">Results</span>
+                <span id="sql-res-status" class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-surface-2 text-slate-400">Ready</span>
+                <span id="sql-res-rows" class="text-slate-500"></span>
+              </div>
+              <div id="sql-res-time" class="text-slate-500"></div>
+            </div>
+
+            <div class="flex-1 overflow-auto relative select-text" id="sql-grid-wrap">
+              <div id="sql-empty-hint" class="flex flex-col items-center justify-center h-full py-12 text-slate-500 text-xs text-center">
+                <i data-lucide="table" class="w-8 h-8 text-slate-600 mb-2"></i>
+                <span>Chạy câu lệnh SQL để xem kết quả spreadsheet</span>
+              </div>
+              <table id="sql-data-table" class="w-full text-xs font-mono hidden border-collapse text-slate-300">
+                <thead id="sql-grid-head" class="sticky top-0 bg-[#0B101D] z-10 border-b border-white/10"></thead>
+                <tbody id="sql-grid-body" class="divide-y divide-white/5"></tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ============================================================ -->
+  <!-- SLIDE-OVER DRAWER: Task Details & Logs Inspector             -->
+  <!-- ============================================================ -->
+  <div id="task-drawer" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="drawer-overlay" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-2xl bg-[#0A0E1A] border-l border-white/10 shadow-2xl flex flex-col h-full animate-slide-in-right z-10">
+      <div class="px-5 py-3.5 border-b border-white/10 flex items-center justify-between bg-surface-1/90">
+        <div>
+          <div class="flex items-center gap-2">
+            <h3 id="drawer-task-id" class="text-xs font-bold font-mono text-white">task_id</h3>
+            <span id="drawer-task-status" class="px-1.5 py-0.2 rounded text-[9px] font-bold">STATUS</span>
+          </div>
+          <p id="drawer-task-name" class="text-[11px] text-slate-400 mt-0.5"></p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btn-drawer-rerun" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-glow/15 text-emerald-glow border border-emerald-glow/30 hover:bg-emerald-glow/25">
+            ▶ Re-run Task
+          </button>
+          <button id="drawer-close" class="p-1 rounded hover:bg-surface-2 text-slate-400 hover:text-white">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+      <div class="flex-1 overflow-auto p-4 flex flex-col">
+        <div class="flex items-center justify-between mb-1.5 text-xs">
+          <span class="text-[10px] font-mono text-slate-500 uppercase">Airflow Task Log (attempt 1)</span>
+        </div>
+        <div class="flex-1 bg-[#05080E] rounded-xl border border-white/10 p-3 font-mono text-[11px] leading-relaxed overflow-auto select-text">
+          <pre id="drawer-log-text" class="text-slate-300 font-mono"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- SLIDE-OVER DRAWER: dbt Lineage Graph                         -->
+  <!-- ============================================================ -->
+  <div id="lineage-drawer" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="lineage-overlay" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-5xl bg-[#090D18] border-l border-white/10 shadow-2xl flex flex-col h-full animate-slide-in-right z-10">
+      <div class="px-5 py-3 border-b border-white/10 flex items-center justify-between bg-surface-1">
+        <div class="flex items-center gap-2">
+          <i data-lucide="network" class="w-4 h-4 text-cyan-accent"></i>
+          <h3 class="text-xs font-bold text-white uppercase tracking-wider">dbt Pipeline Lineage DAG</h3>
+        </div>
+        <button id="lineage-close" class="p-1 rounded text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="flex-1 min-h-0 bg-white">
+        <iframe id="lineage-iframe" class="w-full h-full border-0" title="dbt Lineage"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: Custom Incident Simulator                             -->
+  <!-- ============================================================ -->
+  <div id="incident-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center">
+    <div id="modal-overlay" class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+    <div class="relative glass-card rounded-2xl w-full max-w-md mx-4 p-6 shadow-2xl z-10 animate-fade-in-up space-y-4">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <h3 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+          <i data-lucide="bug" class="w-4 h-4 text-amber-accent"></i> Custom Incident Simulator
+        </h3>
+        <button id="modal-close" class="p-1 rounded text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1">Target Table</label>
+          <input id="sim-table" type="text" value="stg_orders" class="w-full bg-surface-2 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono outline-none" />
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1">Condition</label>
+          <input id="sim-condition" type="text" value="customer_id IS NULL" class="w-full bg-surface-2 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono outline-none" />
+        </div>
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-400 mb-1">Row Count</label>
+          <input id="sim-rows" type="number" value="8" min="1" max="100" class="w-full bg-surface-2 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono outline-none" />
+        </div>
+        <button id="sim-submit" class="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-accent to-orange-500 text-white shadow-lg active:scale-95">
+          Kích hoạt lỗi & Thử thách Agent
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="hidden fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center">
+    <div class="flex flex-col items-center gap-3">
+      <div class="w-8 h-8 border-2 border-white/10 border-t-cyan-accent rounded-full animate-spin"></div>
+      <span id="loading-text" class="text-xs text-slate-300 font-medium">Đang xử lý...</span>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- TOAST NOTIFICATION SYSTEM                                      -->
+  <!-- ============================================================ -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-[120] flex flex-col gap-2 items-end pointer-events-none"></div>
+
+  <!-- Toast template (ẩn) -->
+  <template id="toast-template">
+    <div class="toast animate-fade-in-up pointer-events-auto max-w-sm w-full rounded-xl border shadow-lg backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] cursor-pointer" data-dismissible="true">
+      <div class="p-3 flex items-start gap-3">
+        <div class="w-5 h-5 rounded-full flex items-center justify-center shrink-0">
+          <i data-lucide="info" class="w-4 h-4"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="font-bold text-xs mb-0.5"></div>
+          <div class="text-[11px] opacity-90 leading-relaxed"></div>
+        </div>
+        <button class="toast-dismiss p-1 rounded-lg hover:bg-white/10 text-white/60 hover:text-white">
+          <i data-lucide="x" class="w-3 h-3"></i>
+        </button>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: SQL STUDIO — engineer sửa script staging bằng tay      -->
+  <!-- ============================================================ -->
+  <div id="sql-studio-modal" class="hidden fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-auto border border-cyan-accent/30 shadow-2xl shadow-black/70">
+      <div class="sticky top-0 flex items-center justify-between px-5 py-3 border-b border-white/10 bg-surface-1/95 backdrop-blur-md">
+        <div class="flex items-center gap-2">
+          <i data-lucide="file-code-2" class="w-4 h-4 text-cyan-accent"></i>
+          <h3 class="text-sm font-bold text-white">SQL Studio — sửa script Staging</h3>
+          <span id="sql-studio-incident" class="font-mono text-[11px] text-slate-500"></span>
+        </div>
+        <button id="sql-studio-close" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-surface-3">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-3">
+        <!-- Cảnh báo phạm vi: đây là điểm khác biệt quan trọng so với chạy SQL tự do -->
+        <div class="p-3 rounded-xl bg-amber-accent/10 border border-amber-accent/30 text-[11px] text-slate-300 leading-relaxed">
+          <div class="flex items-center gap-1.5 font-bold text-amber-accent mb-1">
+            <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> SQL của anh vẫn đi qua đủ 2 cổng kiểm
+          </div>
+          Script chỉ được ghi vào <code class="text-emerald-glow" id="sql-studio-shadow">shadow_*</code> và
+          <code class="text-emerald-glow">quarantine_*</code>. Ghi vào bảng thật sẽ bị guard từ chối.
+          Sau đó hệ thống chạy <code>EXPLAIN</code> + dry-run rồi rollback để bắt Binder Error —
+          không phải vì không tin anh, mà vì lỗi gõ thiếu cột thì hậu quả trên production giống nhau.
+        </div>
+
+        <div>
+          <label class="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Script staging</label>
+          <textarea id="sql-studio-editor" rows="12" spellcheck="false"
+            class="mt-1 w-full bg-[#05080F] border border-white/10 rounded-xl p-3 font-mono text-[11px] text-emerald-glow/90 outline-none focus:border-cyan-accent/50 resize-y leading-relaxed"></textarea>
+        </div>
+
+        <div>
+          <label class="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Ghi chú (vào audit log)</label>
+          <input id="sql-studio-note" type="text" placeholder="ví dụ: bổ sung điều kiện total_amount < 0"
+            class="mt-1 w-full bg-surface-2/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-cyan-accent/40 font-mono" />
+        </div>
+
+        <!-- Kết quả preflight -->
+        <div id="sql-studio-result" class="hidden p-3 rounded-xl text-[11px] font-mono leading-relaxed"></div>
+
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button id="sql-studio-cancel" class="px-3 py-2 rounded-xl text-xs font-semibold bg-surface-2 text-slate-300 border border-white/10 hover:bg-surface-3">
+            Đóng
+          </button>
+          <button id="sql-studio-apply" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-accent to-blue-600 text-white shadow-lg shadow-cyan-accent/25 hover:shadow-cyan-accent/40 active:scale-95">
+            <i data-lucide="play-circle" class="w-4 h-4"></i> Kiểm tra & chạy trên Staging
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- COMPLETE SPA JAVASCRIPT ENGINE                               -->
+  <!-- ============================================================ -->
+  <script>
+  "use strict";
+
+  const POLL_MS = 4000;
+  const $id = (id) => document.getElementById(id);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  const APP = {
+    view: 'hub', // 'hub' | 'dag' | 'sql'
+    data: null,
+    dagData: null,
+    activeIncidentId: null,
+    activeTaskId: null,
+    onlyFailed: false,
+    jobFilterText: '',
+    stepperPhase: 0,
+    lastUnread: 0,
+    sqlTables: [],
+    // Write–Audit–Publish: trạng thái ca đang mở + tab preview đang chọn
+    wap: null,
+    wapTab: 'prod',
+    // Right panel tab state
+    rightPanelTab: 'matrix', // 'matrix' | 'chat'
+  };
+
+  // Basic navigation function
+  function switchView(target) {
+    console.log('Switching to:', target);
+    
+    // Hide all views
+    const views = ['spa-view-hub', 'spa-view-dag', 'spa-view-sql'];
+    views.forEach(viewId => {
+      const view = document.getElementById(viewId);
+      if (view) view.classList.add('hidden');
+    });
+    
+    // Show target view
+    const targetView = document.getElementById('spa-view-' + target);
+    if (targetView) {
+      targetView.classList.remove('hidden');
+      console.log('Shown view:', target);
+    }
+    
+    // Update navigation buttons
+    const buttons = document.querySelectorAll('.spa-nav-btn');
+    buttons.forEach(btn => {
+      if (btn.dataset.view === target) {
+        btn.className = btn.className.replace('nav-pill-inactive', 'nav-pill-active');
+      } else {
+        btn.className = btn.className.replace('nav-pill-active', 'nav-pill-inactive');
+      }
+    });
+  }
+  /* State machine Write–Audit–Publish.
+     Thứ tự phải khớp ALLOWED_TRANSITIONS trong data/incident_store.py — backend là
+     nguồn sự thật, stepper chỉ vẽ lại. */
+  const STEPS = [
+    { key: 'detect',   label: 'Detect' },
+    { key: 'investig', label: 'Root Cause' },
+    { key: 'shadow',   label: 'Gate 1: Staging' },
+    { key: 'audit',    label: 'Audit Shadow' },
+    { key: 'ready',    label: 'Gate 2: Publish' },
+    { key: 'done',     label: 'Published' },
+  ];
+
+  /* status backend -> bước trên stepper (1-based). */
+  const STATUS_PHASE = {
+    DETECTED: 1,
+    INVESTIGATING: 2,
+    WAITING_SHADOW_APPROVAL: 3,
+    WAITING_FOR_APPROVAL: 3,
+    STAGING_VERIFYING: 4,
+    AUDIT_FAILED_TRIAGE: 4,
+    READY_FOR_PRODUCTION: 5,
+    PUBLISHED_RESOLVED: 6,
+    RESOLVED: 6,
+    CANCELLED: 0,
+    REJECTED: 0,
+    FAILED: 0,
+  };
+
+  const STATUS_STYLE = {
+    DETECTED:                { icon: '🚨', cls: 'bg-rose-pulse/15 text-rose-pulse border-rose-pulse/30' },
+    INVESTIGATING:           { icon: '🔍', cls: 'bg-cyan-accent/15 text-cyan-accent border-cyan-accent/30' },
+    WAITING_SHADOW_APPROVAL: { icon: '🧪', cls: 'bg-cyan-accent/15 text-cyan-accent border-cyan-accent/30' },
+    WAITING_FOR_APPROVAL:    { icon: '⏸️', cls: 'bg-cyan-accent/15 text-cyan-accent border-cyan-accent/30' },
+    STAGING_VERIFYING:       { icon: '🕵️‍♀️', cls: 'bg-amber-accent/15 text-amber-accent border-amber-accent/30' },
+    READY_FOR_PRODUCTION:    { icon: '🚀', cls: 'bg-emerald-glow/15 text-emerald-glow border-emerald-glow/30' },
+    AUDIT_FAILED_TRIAGE:     { icon: '🛑', cls: 'bg-rose-pulse/15 text-rose-pulse border-rose-pulse/30' },
+    PUBLISHED_RESOLVED:      { icon: '🎉', cls: 'bg-emerald-glow/20 text-emerald-glow border-emerald-glow/40' },
+    CANCELLED:               { icon: '🗑️', cls: 'bg-surface-3 text-slate-400 border-white/10' },
+    RESOLVED:                { icon: '✅', cls: 'bg-emerald-glow/15 text-emerald-glow border-emerald-glow/30' },
+    REJECTED:                { icon: '🚫', cls: 'bg-surface-3 text-slate-400 border-white/10' },
+    FAILED:                  { icon: '❌', cls: 'bg-rose-pulse/15 text-rose-pulse border-rose-pulse/30' },
+  };
+
+  const BLAST_ITEMS = [
+    { name: 'Executive Revenue Dashboard', risk: 'high', icon: 'bar-chart-3' },
+    { name: 'Customer LTV Report', risk: 'high', icon: 'trending-up' },
+    { name: 'Daily Orders Summary', risk: 'medium', icon: 'file-bar-chart' },
+    { name: 'Supply Chain Metrics', risk: 'low', icon: 'truck' },
+  ];
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]
+    );
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return '—';
+    const then = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+    const sec = Math.max(0, Math.floor((Date.now() - then.getTime()) / 1000));
+    if (sec < 60) return sec + 's ago';
+    if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+    if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
+    return Math.floor(sec / 86400) + 'd ago';
+  }
+
+  function clock(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+    return d.toLocaleTimeString('vi-VN', { hour12: false });
+  }
+
+  async function api(path, options) {
+    const res = await fetch(path, options);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail || detail; } catch(_) {}
+      throw new Error(detail);
+    }
+    return res.json();
+  }
+
+  function showLoading(text = 'Đang xử lý...', id) {
+    $id('loading-text').textContent = text;
+    $id('loading-overlay').classList.remove('hidden');
+    $id('loading-overlay').dataset.loadingId = id || 'default';
+  }
+
+  function hideLoading(id) {
+    // Nếu không truyền id hoặc id match, thì ẩn loading
+    const currentId = $id('loading-overlay').dataset.loadingId;
+    if (!id || id === currentId) {
+      $id('loading-overlay').classList.add('hidden');
+      $id('loading-overlay').dataset.loadingId = '';
+    }
+  }
+
+
+
+  /* ============================================================ */
+  /* RIGHT PANEL TAB SWITCHING (Remediation Matrix ↔ AI War Room Chat) */
+  /* ============================================================ */
+
+  function switchRightPanelTab(tabName) {
+    console.log(`🔄 Switching right panel to: ${tabName}`);
+    console.log(`🔍 Current tab elements:`, {
+      matrixTab: $id('tab-matrix'),
+      chatTab: $id('tab-chat'),
+      matrixBtn: $id('tab-matrix-btn'),
+      chatBtn: $id('tab-chat-btn'),
+      iframe: $id('chainlit-iframe')
+    });
+    
+    // Update tab buttons
+    const matrixBtn = $id('tab-matrix-btn');
+    const chatBtn = $id('tab-chat-btn');
+    
+    if (tabName === 'matrix') {
+      matrixBtn.classList.remove('inactive');
+      matrixBtn.classList.add('active');
+      matrixBtn.className = 'right-panel-tab active px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-slate-800/80 border border-cyan-500/40 text-cyan-400';
+      
+      chatBtn.classList.remove('active');
+      chatBtn.classList.add('inactive');
+      chatBtn.className = 'right-panel-tab inactive px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-surface-2 text-slate-400 hover:text-slate-300';
+      
+      // Show matrix content, hide chat
+      const matrixTab = $id('tab-matrix');
+      const chatTab = $id('tab-chat');
+      
+      matrixTab.style.display = 'block';
+      matrixTab.classList.add('active');
+      matrixTab.classList.remove('inactive');
+      
+      chatTab.style.display = 'none';
+      chatTab.classList.remove('active');
+      chatTab.classList.add('inactive');
+      
+      toast({
+        title: '📋 Đã chuyển sang Remediation Matrix',
+        message: 'Đang xem chi tiết sự cố và kế hoạch khắc phục',
+        type: 'info',
+        duration: 2000,
+      });
+      
+    } else if (tabName === 'chat') {
+      matrixBtn.classList.remove('active');
+      matrixBtn.classList.add('inactive');
+      matrixBtn.className = 'right-panel-tab inactive px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-surface-2 text-slate-400 hover:text-slate-300';
+      
+      chatBtn.classList.remove('inactive');
+      chatBtn.classList.add('active');
+      chatBtn.className = 'right-panel-tab active px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-slate-800/80 border border-cyan-500/40 text-cyan-400';
+      
+      // Show chat content, hide matrix
+      const matrixTab = $id('tab-matrix');
+      const chatTab = $id('tab-chat');
+      
+      matrixTab.style.display = 'none';
+      matrixTab.classList.remove('active');
+      matrixTab.classList.add('inactive');
+      
+      chatTab.style.display = 'block';
+      chatTab.style.visibility = 'visible'; 
+      chatTab.style.opacity = '1';
+      chatTab.classList.add('active');
+      chatTab.classList.remove('inactive');
+      
+      console.log('🎯 Chat tab should now be visible:', {
+        display: chatTab.style.display,
+        visibility: chatTab.style.visibility,
+        opacity: chatTab.style.opacity,
+        classList: Array.from(chatTab.classList)
+      });
+      
+      // Hide loading spinner when chat tab is shown (iframe loads automatically now)
+      const loading = $id('chainlit-loading');
+      if (loading) {
+        loading.style.display = 'none';
+      }
+      
+      const iframe = $id('chainlit-iframe');
+      console.log(`🔍 Iframe found:`, !!iframe, iframe?.src);
+      
+      if (iframe) {
+        iframe.addEventListener('load', () => {
+          console.log('🎯 Chainlit iframe loaded successfully!');
+          if (loading) {
+            loading.style.display = 'none';
+          }
+        });
+        
+        iframe.addEventListener('error', () => {
+          console.error('❌ Chainlit iframe failed to load!');
+        });
+      }
+      
+      toast({
+        title: '💬 Đã chuyển sang AI War Room Chat',
+        message: 'Chat trực tiếp với Agent 1 (SRE) & Agent 2 (Auditor)',
+        type: 'info',
+        duration: 2000,
+      });
+    }
+    
+    // Update global state
+    APP.rightPanelTab = tabName;
+  }
+
+  // Expose navigation helpers globally
+  window.switchView = switchView;
+  window.switchRightPanelTab = switchRightPanelTab;
+
+  /* STEPPER */
+  function renderStepper(phase) {
+    APP.stepperPhase = phase;
+    const container = $id('stepper');
+    container.innerHTML = `
+      <div class="flex items-center justify-between w-full">
+        ${STEPS.map((step, i) => {
+          const stepNum = i + 1;
+          const isDone = stepNum < phase;
+          const isActive = stepNum === phase;
+          const colorClass = isDone ? 'text-emerald-glow' : isActive ? 'text-cyan-accent font-bold' : 'text-slate-600';
+          const circleClass = isDone ? 'bg-emerald-glow/20 border-emerald-glow/40 text-emerald-glow' :
+                              isActive ? 'bg-cyan-accent/20 border-cyan-accent/40 text-cyan-accent animate-pulse' :
+                              'bg-surface-2 border-white/5 text-slate-600';
+          const lineClass = isDone ? 'bg-emerald-glow/40' : isActive ? 'bg-gradient-to-r from-emerald-glow/40 to-cyan-accent/40' : 'bg-surface-3/40';
+
+          return `
+            <div class="flex items-center ${i < STEPS.length - 1 ? 'flex-1' : ''}">
+              <div class="flex flex-col items-center gap-1">
+                <div class="w-6 h-6 rounded-full border flex items-center justify-center text-[10px] ${circleClass}">
+                  ${isDone ? '✓' : stepNum}
+                </div>
+                <span class="text-[9px] ${colorClass} uppercase tracking-wider">${step.label}</span>
+              </div>
+              ${i < STEPS.length - 1 ? `<div class="flex-1 h-0.5 mx-1.5 rounded ${lineClass}"></div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  /* HUB VIEW: REFRESH & RENDER */
+  async function refreshHub() {
+    try {
+      const data = await api('/api/dashboard');
+      APP.data = data;
+
+      // KPIs
+      const k = data.kpi;
+      const total = k.jobs_total || 1;
+      const healthPct = Math.round(((k.jobs_success || 0) / total) * 100 * 10) / 10;
+      $id('kpi-health').textContent = healthPct.toFixed(1);
+      $id('kpi-health-bar').style.width = healthPct + '%';
+      $id('kpi-health-hint').textContent = `${k.jobs_success}/${total} flows passing · ${k.jobs_failed || 0} failed`;
+
+      $id('kpi-incidents').textContent = k.incidents_open || 0;
+      const incBadge = $id('kpi-incidents-badge');
+      if (k.incidents_open > 0) {
+        incBadge.classList.remove('hidden');
+        incBadge.textContent = k.incidents_open >= 3 ? 'CRITICAL' : 'WARNING';
+      } else {
+        incBadge.classList.add('hidden');
+      }
+      $id('kpi-incidents-hint').textContent = `${k.incidents_resolved || 0} resolved · ${k.incidents_waiting_approval || 0} waiting approval`;
+
+      $id('kpi-quarantined').textContent = k.incidents_resolved || 0;
+      $id('kpi-quarantine-hint').textContent = k.affected_rows ? `${k.affected_rows} rows affected` : 'All clean — no garbage';
+
+      // Scheduler mode on topbar
+      const isAuto = data.scheduler && data.scheduler.enabled;
+      $id('top-scheduler-dot').className = `w-2 h-2 rounded-full ${isAuto ? 'bg-emerald-glow' : 'bg-amber-accent'}`;
+      $id('top-scheduler-text').textContent = isAuto ? `⏱️ Auto (${data.scheduler.interval_seconds}s)` : '⏸️ Manual';
+
+      // Flows table
+      renderJobsTable(data);
+
+      // Blast radius
+      renderBlastRadius(data);
+
+      // Runs history
+      renderRunsHistory(data);
+
+      // Notifications
+      renderNotifications(data);
+
+      // Stepper: khi đang mở một sự cố thì theo đúng trạng thái của nó, còn không thì
+      // suy từ KPI tổng. Không để KPI ghi đè trạng thái ca đang xem — engineer đang
+      // theo dõi một ca cụ thể, không phải số liệu toàn hệ.
+      if (APP.wap && APP.activeIncidentId) {
+        renderStepper(STATUS_PHASE[APP.wap.status] ?? 1);
+      } else if (k.incidents_open > 0 && k.incidents_investigating > 0) renderStepper(2);
+      else if (k.incidents_waiting_approval > 0) renderStepper(3);
+      else if (k.incidents_resolved > 0) renderStepper(6);
+      else if (k.incidents_open > 0) renderStepper(1);
+      else renderStepper(0);
+
+      // Auto-load active incident if exists and none selected
+      if (k.incidents_open > 0 && !APP.activeIncidentId && (data.incidents || []).length > 0) {
+        const firstOpen = data.incidents.find(i => i.status !== 'RESOLVED' && i.status !== 'REJECTED') || data.incidents[0];
+        if (firstOpen && firstOpen.incident_id) {
+          loadIncidentDossier(firstOpen.incident_id);
+        }
+      } else if (k.incidents_open === 0 && !APP.activeIncidentId) {
+        $id('dossier-card').classList.add('hidden');
+        $id('wap-panel').classList.add('hidden');
+        $id('agent-idle-state').classList.remove('hidden');
+      }
+
+    } catch (err) {
+      console.error('Hub refresh error:', err);
+    }
+  }
+
+  function renderJobsTable(data) {
+    const allJobs = data.jobs || [];
+    const failedCount = allJobs.filter(j => j.status === 'failed').length;
+    $id('jobs-badge-count').textContent = `(${allJobs.length} flows · ${failedCount} errors)`;
+
+    let jobs = allJobs;
+    if (APP.onlyFailed) jobs = jobs.filter(j => j.status === 'failed');
+    if (APP.jobFilterText) {
+      const q = APP.jobFilterText.toLowerCase();
+      jobs = jobs.filter(j => j.name.toLowerCase().includes(q) || j.job_id.toLowerCase().includes(q));
+    }
+
+    const tbody = $id('jobs-body');
+    if (!jobs.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-500">Không có job nào khớp bộ lọc</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = jobs.map(j => {
+      const isFailed = j.status === 'failed';
+      const isSelected = j.incident_id && j.incident_id === APP.activeIncidentId;
+      const statusBadge = isFailed
+        ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-pulse/15 text-rose-pulse border border-rose-pulse/30 animate-breathing">LỖI</span>'
+        : j.status === 'success'
+        ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-glow/15 text-emerald-glow border border-emerald-glow/30">OK</span>'
+        : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-surface-2 text-slate-400">PENDING</span>';
+
+      return `
+        <tr class="cursor-pointer hover:bg-white/[0.03] ${isFailed ? 'row-failed' : ''} ${isSelected ? 'row-selected' : ''}"
+            data-job="${esc(j.job_id)}" data-incident="${esc(j.incident_id || '')}">
+          <td class="px-4 py-2">${statusBadge}</td>
+          <td class="px-4 py-2">
+            <div class="font-bold text-slate-200">${esc(j.name)}</div>
+            <div class="text-[10px] font-mono text-slate-500">${esc(j.job_id)}</div>
+          </td>
+          <td class="px-4 py-2 font-mono text-cyan-accent text-[11px]">${esc(j.layer)}</td>
+          <td class="px-4 py-2 font-mono text-[11px] text-amber-accent">${esc(j.tier)}</td>
+          <td class="px-4 py-2 font-mono text-[11px] ${j.tests_failed ? 'text-rose-pulse font-bold' : 'text-slate-400'}">
+            ${j.tests_total ? `${j.tests_failed}/${j.tests_total}` : '—'}
+          </td>
+          <td class="px-4 py-2 font-mono text-slate-500 text-[11px]">${esc(timeAgo(j.last_run_at))}</td>
+          <td class="px-4 py-2 text-right">
+            <button class="btn-job-run p-1 rounded bg-surface-2 hover:bg-surface-3 text-slate-400 hover:text-emerald-glow border border-white/10"
+                    title="Chạy job này" data-job="${esc(j.job_id)}">
+              <i data-lucide="play" class="w-3 h-3 fill-current"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    lucide.createIcons();
+
+    tbody.querySelectorAll('tr[data-job]').forEach(tr => {
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-job-run')) return;
+        const incId = tr.dataset.incident;
+        if (incId) loadIncidentDossier(incId);
+      });
+    });
+
+    tbody.querySelectorAll('.btn-job-run').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const jId = btn.dataset.job;
+        showLoading(`Đang chạy flow ${jId}...`);
+        try {
+          await api(`/api/jobs/${encodeURIComponent(jId)}/run`, { method: 'POST' });
+          hideLoading();
+          await refreshHub();
+        } catch (err) {
+          hideLoading();
+          toast({
+            title: '❌ Lỗi chạy job',
+            message: err.message || 'Không thể chạy job',
+            type: 'error',
+            duration: 5000,
+          });
+        }
+      });
+    });
+  }
+
+  function renderBlastRadius(data) {
+    const container = $id('blast-list');
+    const hasIncidents = data.kpi && data.kpi.incidents_open > 0;
+    if (!hasIncidents) {
+      container.innerHTML = `
+        <div class="col-span-2 p-3 rounded-xl bg-surface-2/30 border border-white/5 text-slate-500 text-xs flex items-center gap-2">
+          <i data-lucide="check-circle" class="w-4 h-4 text-emerald-glow"></i>
+          <span>Tất cả các Dashboard hạ nguồn đang an toàn</span>
+        </div>`;
+      lucide.createIcons();
+      return;
+    }
+    container.innerHTML = BLAST_ITEMS.map(item => `
+      <div class="p-2.5 rounded-xl border border-rose-pulse/30 bg-rose-pulse/5 flex items-center justify-between text-xs">
+        <div class="flex items-center gap-2 truncate">
+          <i data-lucide="${item.icon}" class="w-3.5 h-3.5 text-slate-400"></i>
+          <span class="truncate text-slate-200">${esc(item.name)}</span>
+        </div>
+        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-pulse/20 text-rose-pulse border border-rose-pulse/30 whitespace-nowrap">
+          ⚠️ Risk
+        </span>
+      </div>
+    `).join('');
+    lucide.createIcons();
+  }
+
+  function renderRunsHistory(data) {
+    const runs = data.recent_runs || [];
+    $id('runs-count').textContent = `${runs.length} runs`;
+    $id('runs-body').innerHTML = runs.map(r => `
+      <tr class="hover:bg-white/[0.02]">
+        <td class="px-4 py-1.5 text-slate-500">${esc(clock(r.started_at))}</td>
+        <td class="px-4 py-1.5 font-bold text-slate-300">${esc(r.job_id)}</td>
+        <td class="px-4 py-1.5">
+          <span class="px-1 py-0.2 rounded text-[9px] font-bold ${
+            r.status === 'success' ? 'text-emerald-glow bg-emerald-glow/15' : 'text-rose-pulse bg-rose-pulse/15'
+          }">${r.status.toUpperCase()}</span>
+        </td>
+        <td class="px-4 py-1.5 text-slate-500">${r.duration_ms ?? 0}ms</td>
+        <td class="px-4 py-1.5 text-slate-400 truncate max-w-[160px]">${esc((r.message || '').slice(0, 60))}</td>
+      </tr>
+    `).join('') || `<tr><td colspan="5" class="p-4 text-center text-slate-600">No runs yet</td></tr>`;
+  }
+
+  function renderNotifications(data) {
+    const unread = data.kpi.unread_notifications || 0;
+    const badge = $id('bell-badge');
+    badge.textContent = unread > 9 ? '9+' : unread;
+    badge.classList.toggle('hidden', unread === 0);
+
+    $id('notif-list').innerHTML = (data.notifications || []).map(n => `
+      <div class="p-2.5 rounded-lg border-l-2 ${n.level === 'critical' ? 'border-rose-pulse bg-rose-pulse/5' : 'border-cyan-accent bg-cyan-accent/5'} text-xs cursor-pointer hover:bg-white/[0.03]"
+           onclick="loadIncidentDossier('${esc(n.incident_id || '')}');$id('notif-panel').classList.add('hidden')">
+        <div class="font-bold text-slate-200">${esc(n.title)}</div>
+        <div class="text-slate-400 text-[11px] mt-0.5">${esc(n.body)}</div>
+        <div class="text-slate-500 text-[10px] mt-1">${esc(timeAgo(n.created_at))}</div>
+      </div>
+    `).join('') || `<div class="p-4 text-center text-slate-500 text-xs">Không có thông báo</div>`;
+  }
+
+  /* INCIDENT DOSSIER (MULTI-AGENT WORKSPACE) */
+  async function loadIncidentDossier(incidentId) {
+    if (!incidentId) return;
+    APP.activeIncidentId = incidentId;
+    showLoading('Đang phân tích chi tiết sự cố...');
+    try {
+      const inc = await api(`/api/incidents/${encodeURIComponent(incidentId)}`);
+      hideLoading();
+
+      $id('agent-idle-state').classList.add('hidden');
+      $id('dossier-card').classList.remove('hidden');
+
+      $id('inc-id').textContent = inc.incident_id;
+      $id('inc-sev-badge').textContent = inc.severity || 'CRITICAL';
+      $id('inc-sev-badge').className = `px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+        inc.severity === 'CRITICAL' ? 'bg-rose-pulse/20 text-rose-pulse border border-rose-pulse/30' :
+        'bg-amber-accent/20 text-amber-accent border border-amber-accent/30'
+      }`;
+      $id('inc-meta-time').textContent = inc.created_at ? timeAgo(inc.created_at) : '';
+      $id('inc-title').textContent = `Vi phạm ${inc.test_name} tại ${inc.target_table}`;
+      $id('inc-table').textContent = inc.target_table || 'main.stg_orders';
+      $id('inc-col').textContent = inc.column_name || 'customer_id';
+      $id('inc-test').textContent = inc.test_name || 'not_null';
+      $id('inc-rows').textContent = (inc.failed_rows || 0).toLocaleString();
+
+      renderStepper(STATUS_PHASE[inc.status] ?? 1);
+
+      const rep = inc.report;
+      if (rep) {
+        const diag = rep.diagnosis || {};
+        $id('inc-root-cause').textContent = diag.root_cause || 'Đang điều tra nguyên nhân...';
+        $id('inc-source').textContent = diag.suspected_source || '—';
+        $id('inc-confidence').textContent = `${Math.round((diag.confidence_score || 0.95) * 100)}% Confidence`;
+
+        const rem = rep.remediation || {};
+        // Hiển thị script STAGING (thứ sẽ thực sự chạy), không phải script ghi bảng thật
+        $id('inc-sql-code').textContent =
+          rem.shadow_execution_script || rem.executable_command || '-- Đang sinh mã khắc phục...';
+        $id('inc-verify-sql').textContent = rem.verification_sql || '--';
+      } else {
+        $id('inc-root-cause').textContent = 'Sự cố mới phát hiện, Agent 1 đang điều tra nguyên nhân...';
+        $id('inc-source').textContent = '—';
+        $id('inc-sql-code').textContent = '-- Đang phân tích...';
+        $id('inc-verify-sql').textContent = '--';
+      }
+
+      $id('inc-occurrences').textContent = inc.occurrences ? `${inc.occurrences} lần lặp lại` : 'Phát hiện lần đầu';
+
+      // Check if audit exists
+      const audit = inc.audit;
+      if (audit) {
+        $id('auditor-card').classList.remove('hidden');
+        $id('audit-verdict-badge').textContent = `✅ ${audit.verdict}`;
+
+        const checks = audit.checks || [
+          { check_name: 'Data Cleanliness', passed: true },
+          { check_name: 'Row Preservation', passed: true },
+          { check_name: 'Referential Integrity', passed: true },
+        ];
+        const ok = audit.verdict === 'AUDIT_PASSED';
+        $id('audit-verdict-badge').textContent = ok ? '✅ AUDIT PASSED' : '❌ AUDIT FAILED';
+        $id('audit-verdict-badge').className = `px-2 py-0.5 rounded text-[10px] font-bold border ${
+          ok ? 'bg-emerald-glow/15 text-emerald-glow border-emerald-glow/30'
+             : 'bg-rose-pulse/15 text-rose-pulse border-rose-pulse/30'}`;
+        $id('audit-checks-grid').innerHTML = checks.map(c => `
+          <div class="p-2 rounded bg-surface-2/80 border border-white/5" title="${esc(c.actual_result || '')}">
+            <span class="${c.passed ? 'text-emerald-glow' : 'text-rose-pulse'} font-bold">${c.passed ? '✓' : '✗'}</span>
+            <div class="text-[10px] text-slate-300 mt-0.5 truncate">${esc(c.check_name)}</div>
+          </div>
+        `).join('');
+      } else {
+        $id('auditor-card').classList.add('hidden');
+      }
+
+      // Connect redirect button to UI chat (if exists)
+      const chatBtn = $id('btn-open-hitl-chat');
+      if (chatBtn) {
+        chatBtn.onclick = async () => {
+          showLoading('Đang mở phiên Human-in-the-Loop...');
+          try {
+            await api(`/api/incidents/${encodeURIComponent(inc.incident_id)}/select`, { method: 'POST' });
+            hideLoading();
+            window.open('/chat', '_blank');
+          } catch (_) {
+            hideLoading();
+            window.open('/chat', '_blank');
+          }
+        };
+      }
+
+      await loadWapPanel(incidentId);
+      refreshHub();
+    } catch (err) {
+      hideLoading();
+      alert('Lỗi tải hồ sơ sự cố: ' + err.message);
+    }
+  }
+
+  /* ============================================================ */
+  /* WRITE–AUDIT–PUBLISH PANEL                                     */
+  /* ============================================================ */
+  /*
+   * Nguyên tắc: **backend quyết định nút nào hiện**, không phải frontend tự suy.
+   * `GET /api/wap/{id}` trả về `next_actions` lấy từ state machine trong
+   * data/incident_store.py, nên UI không bao giờ hiện một nút mà server sẽ từ chối.
+   */
+
+  async function loadWapPanel(incidentId) {
+    const panel = $id('wap-panel');
+    try {
+      const st = await api(`/api/wap/${encodeURIComponent(incidentId)}`);
+      APP.wap = st;
+      panel.classList.remove('hidden');
+
+      const style = STATUS_STYLE[st.status] || { icon: '•', cls: 'bg-surface-3 text-slate-300 border-white/10' };
+      const badge = $id('wap-status-badge');
+      badge.textContent = `${style.icon} ${st.status_label || st.status}`;
+      badge.className = `px-2 py-0.5 rounded text-[10px] font-bold border ${style.cls}`;
+
+      $id('wap-prod-table').textContent = st.prod_table || '—';
+      $id('wap-shadow-table').textContent = st.shadow_table || '(chưa dựng)';
+      $id('wap-hint').textContent = wapHint(st);
+
+      renderWapDiff(st.diff, st);
+      renderWapActions(st);
+      renderTriageAlert(st);
+      await loadWapPreview(incidentId, APP.wapTab || 'prod');
+      lucide.createIcons();
+      
+      console.log(`✅ WAP panel loaded: ${st.status}`, st);
+    } catch (err) {
+      console.error(`❌ WAP panel load failed for ${incidentId}:`, err);
+      panel.classList.add('hidden');
+      // Show error toast chỉ khi đang xem incident này
+      if (APP.activeIncidentId === incidentId) {
+        toast({
+          title: '⚠️ Không tải được thông tin WAP',
+          message: err.message || 'Không thể load trạng thái Write‑Audit‑Publish',
+          type: 'warning',
+          duration: 5000,
+        });
+      }
+    }
+  }
+
+  function wapHint(st) {
+    switch (st.status) {
+      case 'WAITING_SHADOW_APPROVAL':
+      case 'WAITING_FOR_APPROVAL':
+        return 'Bảng thật chưa bị thay đổi gì. Bấm duyệt để chạy script trên bảng bóng — nếu sai thì chỉ cần xoá bảng bóng, không có thiệt hại.';
+      case 'STAGING_VERIFYING':
+        return 'Đã chạy vá trên bảng bóng. Agent 2 đang nghiệm thu độc lập trên chính bảng bóng đó.';
+      case 'READY_FOR_PRODUCTION':
+        return 'Agent 2 đã nghiệm thu ĐẠT. Publish sẽ tráo bảng bóng thành bảng thật trong một transaction (atomic swap).';
+      case 'AUDIT_FAILED_TRIAGE':
+        return 'Agent 2 KHÔNG cấp chứng nhận nên cổng publish vẫn đóng. Bảng thật nguyên vẹn 100%.';
+      case 'PUBLISHED_RESOLVED':
+        return 'Đã tráo bảng bóng vào production. Đừng quên rebuild các mart hạ nguồn bằng dbt.';
+      case 'CANCELLED':
+        return 'Đã huỷ phương án và dọn bảng bóng. Bảng thật chưa từng bị chạm.';
+      default:
+        return 'Agent 1 đang chuẩn bị phương án; script phải qua preflight (EXPLAIN + dry-run) mới được trình để duyệt.';
+    }
+  }
+
+  function renderWapDiff(diff, st) {
+    const wrap = $id('wap-diff-wrap');
+    if (!diff || !diff.ok) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+
+    const num = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('vi-VN'));
+    const rows = [
+      {
+        label: 'Số dòng vi phạm',
+        prod: num(diff.violations_prod),
+        shadow: num(diff.violations_shadow),
+        good: diff.violations_shadow === 0,
+      },
+      { label: 'Tổng số dòng', prod: num(diff.rows_prod), shadow: num(diff.rows_shadow) },
+      {
+        label: 'Dòng đã cách ly (quarantine)',
+        prod: '—',
+        shadow: num(diff.rows_quarantine ?? diff.rows_removed),
+      },
+      {
+        label: 'Schema khớp (điều kiện atomic swap)',
+        prod: '—',
+        shadow: diff.schema_match ? '✅ khớp' : '❌ lệch',
+        good: !!diff.schema_match,
+      },
+    ];
+    $id('wap-diff-body').innerHTML = rows.map(r => `
+      <tr>
+        <td class="px-3 py-1.5 text-slate-400">${esc(r.label)}</td>
+        <td class="px-3 py-1.5 text-right text-amber-accent">${esc(r.prod)}</td>
+        <td class="px-3 py-1.5 text-right font-bold ${
+          r.good === undefined ? 'text-slate-300' : r.good ? 'text-emerald-glow' : 'text-rose-pulse'
+        }">${esc(r.shadow)}</td>
+      </tr>`).join('');
+  }
+
+  function renderTriageAlert(st) {
+    const box = $id('wap-triage-alert');
+    if (st.status !== 'AUDIT_FAILED_TRIAGE') { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    const fd = (st.audit && st.audit.failed_details) || {};
+    const reason = fd.error_message || st.incident?.error || 'Agent 2 không cấp chứng nhận.';
+    const extra = [];
+    if (fd.missing_columns?.length) extra.push(`Cột không tồn tại: ${fd.missing_columns.join(', ')}`);
+    if (fd.remaining_violations !== undefined && fd.remaining_violations !== null) {
+      extra.push(`Còn ${fd.remaining_violations} dòng vi phạm trên bảng bóng`);
+    }
+    $id('wap-triage-reason').textContent = reason + (extra.length ? ` — ${extra.join(' · ')}` : '');
+  }
+
+  /* DYNAMIC ACTION BAR — chỉ vẽ những nút backend cho phép */
+  function renderWapActions(st) {
+    // Gate actions moved to War Room Chat — dashboard shows status bar only.
+    // Giữ hàm (caller ở loadWapPanel vẫn gọi) nhưng không render nút nào nữa.
+    return;
+    const actions = st.next_actions || [];
+    const id = st.incident_id;
+    const html = [];
+    
+    console.log(`🔧 Rendering WAP actions for ${id}:`, {
+      status: st.status,
+      actions: actions,
+      shadow: st.shadow_table,
+      prod: st.prod_table
+    });
+
+    if (actions.includes('approve_shadow')) {
+      html.push(`
+        <button data-wap="approve_shadow" class="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold
+                 bg-emerald-glow/15 text-emerald-glow border border-emerald-glow/40 hover:bg-emerald-glow/25 animate-glow active:scale-[0.98]">
+          <i data-lucide="flask-conical" class="w-4 h-4"></i> 🧪 Duyệt Chạy Thử Trên Staging
+          <span class="text-[10px] font-normal opacity-70">(bảng thật không bị chạm)</span>
+        </button>`);
+    }
+
+    if (actions.includes('publish_prod')) {
+      html.push(`
+        <button data-wap="publish_prod" class="w-full inline-flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl text-xs font-extrabold
+                 bg-gradient-to-r from-emerald-500 via-emerald-glow to-teal-400 text-[#04140D] shadow-lg shadow-emerald-glow/30
+                 hover:shadow-emerald-glow/50 hover:scale-[1.01] active:scale-[0.98]">
+          <i data-lucide="rocket" class="w-4 h-4"></i> 🚀 PUBLISH TO PRODUCTION (Bảng Thật)
+        </button>
+        <p class="text-[10px] text-slate-500 text-center font-mono">
+          Atomic swap: <code>${esc(st.shadow_table)}</code> → <code>${esc(st.prod_table)}</code>
+        </p>`);
+    }
+
+    if (actions.includes('replan')) {
+      const used = st.retry_count || 0;
+      const max = st.max_replan || 1;
+      const exhausted = used >= max;
+      html.push(`
+        <button data-wap="replan" ${exhausted ? 'disabled' : ''}
+                class="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold border active:scale-[0.98] ${
+          exhausted ? 'bg-surface-2 text-slate-600 border-white/5 cursor-not-allowed'
+                    : 'bg-cyan-accent/15 text-cyan-accent border-cyan-accent/40 hover:bg-cyan-accent/25'}">
+          <i data-lucide="bot" class="w-4 h-4"></i> 🤖 Cho Agent 1 Re-plan (${used}/${max})
+          ${exhausted ? '<span class="text-[10px] font-normal">— đã hết lượt</span>' : ''}
+        </button>`);
+    }
+
+    if (actions.includes('manual_override')) {
+      html.push(`
+        <button data-wap="manual_override" class="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold
+                 bg-amber-accent/15 text-amber-accent border border-amber-accent/40 hover:bg-amber-accent/25 active:scale-[0.98]">
+          <i data-lucide="pencil-ruler" class="w-4 h-4"></i> ✏️ Sửa SQL Thủ Công
+        </button>`);
+    }
+
+    if (actions.includes('cancel_shadow')) {
+      html.push(`
+        <button data-wap="cancel_shadow" class="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold
+                 bg-rose-pulse/10 text-rose-pulse border border-rose-pulse/30 hover:bg-rose-pulse/20 active:scale-[0.98]">
+          <i data-lucide="trash-2" class="w-4 h-4"></i> 🛑 Huỷ Bỏ & Xoá Staging
+        </button>`);
+    }
+
+    if (!html.length) {
+      const done = st.status === 'PUBLISHED_RESOLVED';
+      html.push(`
+        <div class="p-3 rounded-xl text-center text-[11px] ${
+          done ? 'bg-emerald-glow/10 border border-emerald-glow/30 text-emerald-glow'
+               : 'bg-surface-2/70 border border-white/10 text-slate-400'}">
+          ${done ? '🎉 Sự cố đã xử lý xong và publish lên production.'
+                 : st.status === 'STAGING_VERIFYING'
+                   ? '🕵️‍♀️ Agent 2 đang nghiệm thu trên bảng bóng, anh chờ em một chút ạ…'
+                   : 'Không có hành động nào ở trạng thái này.'}
+        </div>`);
+    }
+
+    box.innerHTML = html.join('');
+    console.log(`✅ Rendered ${html.length} action items`);
+    
+    box.querySelectorAll('[data-wap]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        console.log(`🎯 WAP action clicked: ${btn.dataset.wap}`);
+        runWapAction(btn.dataset.wap, id, btn);
+      });
+    });
+    lucide.createIcons();
+  }
+
+  async function runWapAction(action, incidentId, btn) {
+    if (action === 'manual_override') { openSqlStudio(); return; }
+
+    const st = APP.wap || {};
+    const details = {
+      prod_table: st.prod_table,
+      shadow_table: st.shadow_table,
+      rows_prod_before: st.diff?.rows_prod,
+      rows_shadow: st.diff?.rows_shadow,
+    };
+
+    // Sử dụng confirm modal mới
+    const confirmed = await wapConfirm(action, incidentId, details);
+    if (!confirmed) return;
+
+    const endpoints = {
+      approve_shadow: '/api/approve-shadow',
+      publish_prod: '/api/publish-prod',
+      replan: '/api/replan',
+      cancel_shadow: '/api/cancel-shadow',
+    };
+
+    const feedbackConfigs = {
+      approve_shadow: {
+        loadingText: 'Đang chạy trên staging và cho Agent 2 nghiệm thu…',
+        successTitle: '🧪 Đã chạy trên Staging',
+        successMessage: 'Agent 2 đang nghiệm thu bảng bóng…',
+        errorTitle: 'Chạy Staging thất bại',
+      },
+      publish_prod: {
+        loadingText: 'Đang tráo bảng sang production…',
+        successTitle: '🚀 Đã Publish',
+        successMessage: 'Bảng production đã nhận dữ liệu sạch từ bảng bóng',
+        errorTitle: 'Publish thất bại',
+      },
+      replan: {
+        loadingText: 'Agent 1 đang soạn lại phương án…',
+        successTitle: '🤖 Agent 1 re‑plan',
+        successMessage: 'Agent 1 đã đề xuất phương án v2',
+        errorTitle: 'Re‑plan thất bại',
+      },
+      cancel_shadow: {
+        loadingText: 'Đang dọn bảng bóng…',
+        successTitle: '🗑️ Đã huỷ',
+        successMessage: 'Đã xoá bảng bóng, bảng production nguyên vẹn',
+        errorTitle: 'Huỷ thất bại',
+      },
+    };
+
+    const cfg = feedbackConfigs[action] || {};
+    if (btn) btn.disabled = true;
+
+    try {
+      const res = await apiWithFeedback(endpoints[action], {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ incident_id: incidentId }),
+      }, cfg);
+
+      notifyWapResult(action, res);
+    } catch (err) {
+      // Error đã được xử lý trong apiWithFeedback
+    } finally {
+      if (btn) btn.disabled = false;
+      await loadIncidentDossier(incidentId);
+    }
+  }
+
+  function notifyWapResult(action, res) {
+    if (action === 'approve_shadow' && res.audit) {
+      const ready = res.audit.is_ready_for_production;
+      const d = res.diff || {};
+      if (ready) {
+        toast({
+          title: '✅ Nghiệm thu ĐẠT',
+          message: `Bảng bóng: ${d.rows_shadow} dòng · ${d.violations_shadow} vi phạm\nBảng thật: ${d.rows_prod} dòng (chưa bị chạm)\n\nNút [🚀 Publish] đã được mở.`,
+          type: 'success',
+          duration: 6000,
+        });
+      } else {
+        const errMsg = (res.audit.failed_details || {}).error_message || '';
+        toast({
+          title: '🛑 Nghiệm thu KHÔNG ĐẠT',
+          message: `${errMsg}\n\nBảng production vẫn nguyên vẹn. Anh chọn 1 trong 3 hướng cứu hộ.`,
+          type: 'error',
+          duration: 8000,
+        });
+      }
+    } else if (action === 'publish_prod' && res.publish) {
+      toast({
+        title: '🎉 Đã publish lên production',
+        message: `${res.publish.prod_table}: ${res.publish.rows_prod_before} → ${res.publish.rows_prod_after} dòng\n\n${res.next_step || '—'}`,
+        type: 'success',
+        duration: 7000,
+      });
+    } else if (action === 'replan') {
+      toast({
+        title: '🤖 Agent 1 re‑plan',
+        message: res.summary || 'Đã xử lý.',
+        type: 'info',
+        duration: 5000,
+      });
+    } else if (action === 'cancel_shadow') {
+      toast({
+        title: '🗑️ Đã huỷ',
+        message: 'Đã dọn bảng bóng. Bảng production không bị thay đổi.',
+        type: 'info',
+        duration: 4000,
+      });
+    }
+  }
+
+  /* TAB LIVE / SHADOW PREVIEW */
+  async function loadWapPreview(incidentId, which) {
+    APP.wapTab = which;
+    $id('tab-live').className = `wap-tab px-2.5 py-1 rounded-md text-[10px] font-bold ${
+      which === 'prod' ? 'nav-pill-active' : 'nav-pill-inactive'}`;
+    $id('tab-shadow').className = `wap-tab px-2.5 py-1 rounded-md text-[10px] font-bold ${
+      which === 'shadow' ? 'nav-pill-active' : 'nav-pill-inactive'}`;
+
+    try {
+      const res = await api(`/api/wap/${encodeURIComponent(incidentId)}/preview?which=${which}&limit=12`);
+      // Backend trả HTTP 200 kèm {ok:false} khi bảng chưa tồn tại — ném lỗi để
+      // hiện đúng thông báo thay vì "0 dòng • Không có dữ liệu" gây hiểu lầm.
+      if (res && res.ok === false) throw new Error(res.error || 'Không đọc được dữ liệu');
+      $id('wap-preview-meta').textContent =
+        `${res.table} · ${Number(res.total_rows || 0).toLocaleString('vi-VN')} dòng`;
+      $id('wap-preview-head').innerHTML = `<tr>${(res.columns || [])
+        .map(c => `<th class="text-left px-2 py-1.5 whitespace-nowrap">${esc(c)}</th>`).join('')}</tr>`;
+      $id('wap-preview-body').innerHTML = (res.rows || []).map(row => `
+        <tr class="hover:bg-white/[0.03]">${(res.columns || [])
+          .map(c => `<td class="px-2 py-1 whitespace-nowrap ${
+            row[c] === null ? 'text-rose-pulse italic' : ''}">${row[c] === null ? 'NULL' : esc(row[c])}</td>`)
+          .join('')}</tr>`).join('') ||
+        `<tr><td class="px-3 py-4 text-center text-slate-500">Không có dữ liệu</td></tr>`;
+    } catch (err) {
+      $id('wap-preview-meta').textContent = which === 'shadow' ? 'chưa dựng bảng bóng' : 'không đọc được';
+      $id('wap-preview-head').innerHTML = '';
+      $id('wap-preview-body').innerHTML =
+        `<tr><td class="px-3 py-4 text-center text-slate-500">${esc(err.message)}</td></tr>`;
+    }
+  }
+
+  /* MODAL SQL STUDIO */
+  function openSqlStudio() {
+    const st = APP.wap || {};
+    const plan = st.plan || {};
+    $id('sql-studio-incident').textContent = st.incident_id || '';
+    $id('sql-studio-shadow').textContent = st.shadow_table || 'shadow_*';
+    // Nạp sẵn script hiện tại để engineer sửa thay vì gõ lại từ đầu
+    $id('sql-studio-editor').value = plan.shadow_execution_script || '';
+    $id('sql-studio-note').value = '';
+    $id('sql-studio-result').classList.add('hidden');
+    $id('sql-studio-modal').classList.remove('hidden');
+    lucide.createIcons();
+  }
+
+  function closeSqlStudio() {
+    $id('sql-studio-modal').classList.add('hidden');
+  }
+
+  async function applyManualSql() {
+    const st = APP.wap || {};
+    const sql = $id('sql-studio-editor').value.trim();
+    const note = $id('sql-studio-note').value;
+
+    if (!sql) {
+      toast({
+        title: '⚠️ Script rỗng',
+        message: 'Vui lòng nhập SQL script để sửa',
+        type: 'warning',
+        duration: 4000,
+      });
+      return;
+    }
+
+    // Xác nhận trước khi apply
+    const confirmed = await confirmModal({
+      title: '✏️ Sửa SQL thủ công',
+      message: 'Script của anh sẽ được:\n1. Kiểm guard phạm vi ghi (chỉ được ghi shadow_*)\n2. Preflight (EXPLAIN + dry-run transaction)\n3. Chạy trên staging nếu hợp lệ\n4. Agent 2 nghiệm thu ngay trên bảng bóng',
+      details: `📝 Ghi chú: ${note || '(không có)'}\n\n${sql.length > 200 ? sql.substring(0, 200) + '…' : sql}`,
+      type: 'info',
+      confirmText: 'Kiểm tra & Chạy',
+      cancelText: 'Để sau',
+    });
+
+    if (!confirmed) return;
+
+    const btn = $id('sql-studio-apply');
+    btn.disabled = true;
+
+    try {
+      const res = await apiWithFeedback('/api/manual-override', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          incident_id: st.incident_id,
+          custom_sql: sql,
+          note: note,
+          rerun_audit: true,
+        }),
+      }, {
+        loadingText: 'Kiểm guard + preflight + chạy staging…',
+        successTitle: '✅ SQL hợp lệ',
+        errorTitle: '❌ SQL bị từ chối',
+      });
+
+      if (res.ok) {
+        const ready = res.audit && res.audit.is_ready_for_production;
+        toast({
+          title: ready ? '🎖️ Agent 2 nghiệm thu ĐẠT' : '⚠️ Agent 2 chưa cấp chứng nhận',
+          message: ready
+            ? 'Nút Publish đã được mở. Anh có thể publish lên production.'
+            : 'Xem chi tiết ở panel bên dưới để biết lý do.',
+          type: ready ? 'success' : 'warning',
+          duration: 5000,
+        });
+
+        setTimeout(() => {
+          closeSqlStudio();
+          loadIncidentDossier(st.incident_id);
+        }, 1000);
+      } else {
+        // Guard/preflight từ chối
+        const stage = res.stage === 'scope_guard' ? 'Guard phạm vi ghi' : 'Preflight';
+        toast({
+          title: `❌ ${stage} từ chối`,
+          message: `${res.error || ''}${res.failed_statement ? `\n\n${res.failed_statement.substring(0, 150)}…` : ''}`,
+          type: 'error',
+          duration: 8000,
+        });
+      }
+    } catch (err) {
+      // Đã xử lý trong apiWithFeedback
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* VIEW 2: PIPELINE ORCHESTRATOR & DAG */
+  async function loadDAGData() {
+    try {
+      const res = await api('/api/pipeline/dag');
+      APP.dagData = res;
+
+      const sch = res.scheduler || {};
+      const isAuto = sch.enabled;
+      $id('dag-scheduler-dot').className = `w-2 h-2 rounded-full ${isAuto ? 'bg-emerald-glow animate-pulse' : 'bg-amber-accent'}`;
+      $id('dag-scheduler-label').textContent = isAuto ? `Auto-Run (${sch.interval_seconds}s)` : 'Manual Mode';
+      $id('btn-dag-scheduler-toggle').className = `inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
+        isAuto ? 'bg-emerald-glow/10 text-emerald-glow border-emerald-glow/30' : 'bg-amber-accent/10 text-amber-accent border-amber-accent/30'
+      }`;
+
+      const cols = {
+        ingestion: $id('dag-col-ingestion'),
+        gate: $id('dag-col-gate'),
+        staging: $id('dag-col-staging'),
+        marts: $id('dag-col-marts'),
+      };
+      Object.values(cols).forEach(c => c.innerHTML = '');
+
+      (res.nodes || []).forEach(node => {
+        let col = cols.staging;
+        if (node.layer === 'ingestion') col = cols.ingestion;
+        else if (node.layer === 'gate') col = cols.gate;
+        else if (node.layer === 'marts' || node.layer === 'serving') col = cols.marts;
+
+        const isFailed = node.status === 'failed';
+        const isPass = node.status === 'success';
+        const border = isFailed ? 'border-rose-pulse/40 bg-rose-pulse/5' :
+                       isPass ? 'border-emerald-glow/30 bg-emerald-glow/5' :
+                       'border-white/10 bg-surface-2/40';
+
+        col.insertAdjacentHTML('beforeend', `
+          <div class="dag-node p-3 rounded-xl border ${border} cursor-pointer select-none" onclick="openTaskDrawer('${esc(node.id)}')">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[9px] font-mono uppercase px-1.5 rounded bg-surface-1 text-slate-400">${esc(node.layer)}</span>
+              <span class="text-[9px] font-bold ${isFailed ? 'text-rose-pulse' : isPass ? 'text-emerald-glow' : 'text-slate-500'} font-mono">
+                ${node.status.toUpperCase()}
+              </span>
+            </div>
+            <div class="font-bold text-xs text-white font-mono truncate">${esc(node.id)}</div>
+            <div class="text-[11px] text-slate-400 truncate">${esc(node.name)}</div>
+            <div class="mt-2 pt-1.5 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500">
+              <span>${node.duration_ms}ms</span>
+              <span>${node.tests_total ? `${node.tests_failed}/${node.tests_total} DQ` : 'No gate'}</span>
+            </div>
+          </div>
+        `);
+      });
+
+    } catch (err) {
+      console.error('Lỗi load DAG:', err);
+    }
+  }
+
+  async function openTaskDrawer(taskId) {
+    APP.activeTaskId = taskId;
+    $id('drawer-task-id').textContent = taskId;
+    $id('drawer-task-status').textContent = 'Loading...';
+    $id('drawer-log-text').textContent = 'Loading Airflow task instance log...';
+    $id('task-drawer').classList.remove('hidden');
+
+    try {
+      const data = await api(`/api/pipeline/tasks/${encodeURIComponent(taskId)}/logs`);
+      $id('drawer-task-name').textContent = data.name;
+      $id('drawer-task-status').textContent = data.status.toUpperCase();
+      $id('drawer-task-status').className = `px-1.5 py-0.2 rounded text-[9px] font-bold ${
+        data.status === 'failed' ? 'bg-rose-pulse/20 text-rose-pulse' : 'bg-emerald-glow/20 text-emerald-glow'
+      }`;
+      $id('drawer-log-text').textContent = data.log_text;
+    } catch (err) {
+      $id('drawer-log-text').textContent = 'Lỗi tải log: ' + err.message;
+    }
+  }
+
+  /* VIEW 3: DBeAVER-STYLE SQL STUDIO */
+  async function loadSqlTables() {
+    try {
+      const tables = await api('/api/sql/tables');
+      APP.sqlTables = tables;
+      renderSqlTablesTree(tables);
+    } catch (err) {
+      $id('sql-tables-tree').innerHTML = `<div class="text-rose-pulse p-3 text-xs">Lỗi: ${esc(err.message)}</div>`;
+    }
+  }
+
+  function renderSqlTablesTree(tables, filter = '') {
+    const tree = $id('sql-tables-tree');
+    const q = filter.toLowerCase().trim();
+    const filtered = tables.filter(t => t.name.toLowerCase().includes(q));
+
+    tree.innerHTML = filtered.map(t => `
+      <div class="p-2 rounded-lg hover:bg-white/[0.04] cursor-pointer flex items-center justify-between font-mono text-xs text-slate-300"
+           ondblclick="$id('sql-query-input').value='SELECT * FROM ${esc(t.name)} LIMIT 50;';execSqlQuery()">
+        <div class="flex items-center gap-1.5 truncate">
+          <i data-lucide="table" class="w-3.5 h-3.5 text-cyan-accent shrink-0"></i>
+          <span class="truncate">${esc(t.name)}</span>
+        </div>
+        <span class="text-[10px] text-slate-500 font-mono">${t.row_count != null ? t.row_count.toLocaleString() : '—'}</span>
+      </div>
+    `).join('') || `<div class="p-4 text-center text-slate-500 text-xs">Không tìm thấy bảng</div>`;
+    lucide.createIcons();
+  }
+
+  async function execSqlQuery() {
+    const query = $id('sql-query-input').value.trim();
+    if (!query) return;
+
+    $id('sql-res-status').textContent = 'Running...';
+    $id('sql-res-status').className = 'px-1.5 py-0.2 rounded text-[9px] font-bold bg-cyan-accent/20 text-cyan-accent';
+    const t0 = performance.now();
+
+    try {
+      const res = await api('/api/sql/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, limit: 100 }),
+      });
+
+      const elapsed = Math.round(performance.now() - t0);
+      $id('sql-res-time').textContent = `${elapsed} ms`;
+      $id('sql-res-status').textContent = 'SUCCESS';
+      $id('sql-res-status').className = 'px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-glow/20 text-emerald-glow';
+      $id('sql-res-rows').textContent = `${res.returned_rows || res.row_count || 0} rows`;
+
+      $id('sql-empty-hint').classList.add('hidden');
+      const table = $id('sql-data-table');
+      table.classList.remove('hidden');
+
+      const cols = res.columns || [];
+      $id('sql-grid-head').innerHTML = `
+        <tr>
+          <th class="py-2 px-3 text-slate-500 border-r border-white/10 text-center w-10">#</th>
+          ${cols.map(c => `<th class="py-2 px-3 text-left text-slate-300 font-semibold border-r border-white/10 whitespace-nowrap">${esc(c)}</th>`).join('')}
+        </tr>
+      `;
+
+      $id('sql-grid-body').innerHTML = (res.rows || []).map((r, i) => `
+        <tr class="hover:bg-white/[0.02]">
+          <td class="py-1.5 px-3 text-center text-slate-600 border-r border-white/5">${i + 1}</td>
+          ${cols.map(c => {
+            const val = r[c];
+            const isNull = val === null || val === undefined;
+            return `<td class="py-1.5 px-3 whitespace-nowrap border-r border-white/5 ${isNull ? 'text-rose-pulse font-bold' : ''}">
+              ${isNull ? '<span class="px-1 py-0.2 rounded bg-rose-pulse/15 text-[9px]">NULL</span>' : esc(val)}
+            </td>`;
+          }).join('')}
+        </tr>
+      `).join('');
+
+    } catch (err) {
+      $id('sql-res-status').textContent = 'ERROR';
+      $id('sql-res-status').className = 'px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-pulse/20 text-rose-pulse';
+      toast({
+        title: '❌ SQL Error',
+        message: err.message || 'Lỗi khi thực thi SQL',
+        type: 'error',
+        duration: 6000,
+      });
+    }
+  }
+
+  /* INIT & EVENT LISTENERS */
+  function init() {
+    lucide.createIcons();
+    renderStepper(0);
+    
+    // Set default right panel tab
+    APP.rightPanelTab = 'matrix';
+
+    // Demo toast khi load (có thể bỏ sau)
+    setTimeout(() => {
+      toast({
+        title: '👋 Dashboard WAP',
+        message: 'Write‑Audit‑Publish đã sẵn sàng. Click incident để xem chi tiết.',
+        type: 'info',
+        duration: 5000,
+      });
+      
+      // Test tab elements after page fully loads
+      console.log('🔍 Testing elements after page load...');
+      testTabSwitching();
+      
+      // AUTO-SWITCH TO CHAT TAB FOR TESTING
+      setTimeout(() => {
+        console.log('🚀 Auto-switching to chat tab for testing...');
+        switchRightPanelTab('chat');
+      }, 2000);
+    }, 800);
+
+    // --- RIGHT PANEL TAB SWITCHING ---
+    const matrixBtn = $id('tab-matrix-btn');
+    const chatBtn = $id('tab-chat-btn');
+    
+    console.log('🔍 Tab elements found:', { 
+      matrixBtn: !!matrixBtn, 
+      chatBtn: !!chatBtn,
+      matrixBtnElement: matrixBtn,
+      chatBtnElement: chatBtn
+    });
+    
+    if (matrixBtn) {
+      matrixBtn.addEventListener('click', () => {
+        console.log('🖱️ Matrix button clicked');
+        switchRightPanelTab('matrix');
+      });
+    } else {
+      console.error('❌ Matrix button not found!');
+    }
+    
+    if (chatBtn) {
+      chatBtn.addEventListener('click', () => {
+        console.log('🖱️ Chat button clicked');
+        switchRightPanelTab('chat');
+      });
+    } else {
+      console.error('❌ Chat button not found!');
+    }
+
+    // Ẩn spinner khi iframe đã tải xong (bỏ qua lần load about:blank ban đầu)
+    const chainlitIframe = $id('chainlit-iframe');
+    if (chainlitIframe) {
+      chainlitIframe.addEventListener('load', () => {
+        let href = '';
+        try { href = chainlitIframe.contentWindow.location.href; } catch (_) {}
+        if (href === 'about:blank') return;
+        const loading = $id('chainlit-loading');
+        if (loading) loading.classList.add('hidden');
+      });
+    }
+    
+    // Update old chat button to use new tab system
+    const oldChatBtn = $id('btn-open-hitl-chat');
+    if (oldChatBtn) {
+      oldChatBtn.addEventListener('click', () => {
+        // Still open in new tab for backward compatibility
+        window.open('/chat', '_blank');
+      });
+    }
+
+    // --- WAP: tab preview + modal SQL Studio ---
+    $id('tab-live').addEventListener('click', () => {
+      loadWapPreview(APP.activeIncidentId, 'prod');
+      toast({
+        title: '🗂️ Live Table',
+        message: 'Đang xem dữ liệu bảng production',
+        type: 'info',
+        duration: 2000,
+      });
+    });
+    $id('tab-shadow').addEventListener('click', () => {
+      loadWapPreview(APP.activeIncidentId, 'shadow');
+      toast({
+        title: '🧪 Shadow Preview',
+        message: 'Đang xem dữ liệu bảng bóng (staging)',
+        type: 'info',
+        duration: 2000,
+      });
+    });
+    $id('sql-studio-close').addEventListener('click', closeSqlStudio);
+    $id('sql-studio-cancel').addEventListener('click', closeSqlStudio);
+    $id('sql-studio-apply').addEventListener('click', applyManualSql);
+    $id('sql-studio-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'sql-studio-modal') closeSqlStudio();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeSqlStudio();
+    });
+
+    // View switcher buttons
+    const navButtons = $$('.spa-nav-btn');
+    console.log('🔧 Setting up navigation for', navButtons.length, 'buttons');
+    
+    navButtons.forEach((btn, index) => {
+      console.log(`📍 Button ${index}:`, btn.dataset.view, btn.textContent.trim());
+      btn.addEventListener('click', () => {
+        console.log('🖱️ Navigation button clicked:', btn.dataset.view);
+        switchView(btn.dataset.view);
+      });
+    });
+
+    // Topbar scheduler toggle
+    $id('btn-top-scheduler-toggle').addEventListener('click', async () => {
+      showLoading('Đang đổi chế độ Scheduler...');
+      try {
+        await api('/api/scheduler/toggle', { method: 'POST' });
+        hideLoading();
+        await refreshHub();
+      } catch (err) {
+        hideLoading();
+        toast({
+          title: '❌ Lỗi toggle',
+          message: err.message || 'Không thể thay đổi trạng thái',
+          type: 'error',
+          duration: 4000,
+        });
+      }
+    });
+
+    // Case 1: NULL Check
+    $id('btn-case1').addEventListener('click', async () => {
+      showLoading('Đang cấy lỗi NULL và kích hoạt pipeline...');
+      try {
+        const res = await api('/api/demo/inject-defect?rows=8', { method: 'POST' });
+        hideLoading();
+        if (res.incident_id) {
+          await loadIncidentDossier(res.incident_id);
+        }
+        await refreshHub();
+      } catch (err) {
+        hideLoading();
+        toast({
+          title: '❌ Lỗi',
+          message: err.message || 'Có lỗi xảy ra',
+          type: 'error',
+          duration: 4000,
+        });
+      }
+    });
+
+    // Case 2: Custom Anomaly
+    $id('btn-case2').addEventListener('click', () => $id('incident-modal').classList.remove('hidden'));
+    $id('modal-close').addEventListener('click', () => $id('incident-modal').classList.add('hidden'));
+    $id('modal-overlay').addEventListener('click', () => $id('incident-modal').classList.add('hidden'));
+
+    $id('sim-submit').addEventListener('click', async () => {
+      $id('incident-modal').classList.add('hidden');
+      const rows = parseInt($id('sim-rows').value) || 8;
+      showLoading('Đang cấy lỗi Custom Anomaly...');
+      try {
+        const res = await api(`/api/demo/inject-defect?rows=${rows}`, { method: 'POST' });
+        hideLoading();
+        if (res.incident_id) await loadIncidentDossier(res.incident_id);
+        await refreshHub();
+      } catch (err) {
+        hideLoading();
+        toast({
+          title: '❌ Lỗi',
+          message: err.message || 'Có lỗi xảy ra',
+          type: 'error',
+          duration: 4000,
+        });
+      }
+    });
+
+    // Reset Data
+    $id('btn-reset').addEventListener('click', async () => {
+      showLoading('Đang reset DuckDB về trạng thái sạch...');
+      try {
+        await api('/api/jobs/run-all', { method: 'POST' });
+        hideLoading();
+        $id('dossier-card').classList.add('hidden');
+        $id('wap-panel').classList.add('hidden');
+        $id('agent-idle-state').classList.remove('hidden');
+        APP.wap = null;
+        APP.activeIncidentId = null;
+        await refreshHub();
+      } catch (err) {
+        hideLoading();
+        toast({
+          title: '❌ Lỗi reset',
+          message: err.message || 'Không thể reset warehouse',
+          type: 'error',
+          duration: 5000,
+        });
+      }
+    });
+
+    // Lineage drawer
+    $id('btn-lineage').addEventListener('click', () => {
+      $id('lineage-iframe').src = '/dbt-docs/index.html#!/overview';
+      $id('lineage-drawer').classList.remove('hidden');
+    });
+    $id('lineage-close').addEventListener('click', () => $id('lineage-drawer').classList.add('hidden'));
+    $id('lineage-overlay').addEventListener('click', () => $id('lineage-drawer').classList.add('hidden'));
+
+    // Bell notifications
+    $id('bell').addEventListener('click', () => $id('notif-panel').classList.toggle('hidden'));
+    $id('mark-read').addEventListener('click', async () => {
+      await api('/api/notifications/read', { method: 'POST' });
+      await refreshHub();
+    });
+
+    // Filters
+    $id('job-search').addEventListener('input', (e) => {
+      APP.jobFilterText = e.target.value;
+      if (APP.data) renderJobsTable(APP.data);
+    });
+    $id('filter-only-failed').addEventListener('change', (e) => {
+      APP.onlyFailed = e.target.checked;
+      if (APP.data) renderJobsTable(APP.data);
+    });
+
+    $id('btn-hub-run-all').addEventListener('click', async () => {
+      showLoading('Đang chạy toàn bộ 10 flows...');
+      try {
+        await api('/api/jobs/run-all', { method: 'POST' });
+        hideLoading();
+        await refreshHub();
+      } catch (err) {
+        hideLoading();
+        toast({
+          title: '❌ Lỗi',
+          message: err.message || 'Có lỗi xảy ra',
+          type: 'error',
+          duration: 4000,
+        });
+      }
+    });
+
+    // Copy SQL
+    $id('btn-copy-sql').addEventListener('click', () => {
+      const code = $id('inc-sql-code').textContent;
+      navigator.clipboard.writeText(code);
+      $id('btn-copy-sql').textContent = '✓ Copied!';
+      setTimeout(() => $id('btn-copy-sql').innerHTML = '<i data-lucide="copy" class="w-3 h-3"></i> Copy SQL', 1500);
+    });
+
+    // DAG View listeners
+    $id('btn-dag-scheduler-toggle').addEventListener('click', async () => {
+      showLoading('Đang đổi chế độ Scheduler...');
+      try {
+        await api('/api/scheduler/toggle', { method: 'POST' });
+        hideLoading();
+        await loadDAGData();
+        await refreshHub();
+      } catch (err) {
+        hideLoading();
+        toast({
+          title: '❌ Lỗi toggle',
+          message: err.message || 'Không thể thay đổi trạng thái',
+          type: 'error',
+          duration: 4000,
+        });
+      }
+    });
+
+    $id('btn-dag-trigger-run').addEventListener('click', async () => {
+      showLoading('Đang trigger toàn bộ DAG...');
+      try {
+        await api('/api/pipeline/dag/run', { method: 'POST' });
+        hideLoading();
+        await loadDAGData();
+        await refreshHub();
+      } catch (err) {
+        hideLoading();
+        toast({
+          title: '❌ Lỗi chạy DAG',
+          message: err.message || 'Không thể chạy DAG',
+          type: 'error',
+          duration: 5000,
+        });
+      }
+    });
+
+    $id('btn-dag-refresh').addEventListener('click', loadDAGData);
+
+    // Task Drawer
+    $id('drawer-close').addEventListener('click', () => $id('task-drawer').classList.add('hidden'));
+    $id('drawer-overlay').addEventListener('click', () => $id('task-drawer').classList.add('hidden'));
+    $id('btn-drawer-rerun').addEventListener('click', async () => {
+      if (!APP.activeTaskId) return;
+      showLoading(`Đang chạy lại ${APP.activeTaskId}...`);
+      try {
+        await api(`/api/jobs/${encodeURIComponent(APP.activeTaskId)}/run`, { method: 'POST' });
+        hideLoading();
+        await openTaskDrawer(APP.activeTaskId);
+        await loadDAGData();
+      } catch (err) {
+        hideLoading();
+        toast({
+          title: '❌ Lỗi',
+          message: err.message || 'Có lỗi xảy ra',
+          type: 'error',
+          duration: 4000,
+        });
+      }
+    });
+
+    // SQL Studio
+    $id('btn-refresh-tables').addEventListener('click', loadSqlTables);
+    $id('sql-table-search').addEventListener('input', (e) => renderSqlTablesTree(APP.sqlTables, e.target.value));
+    $id('btn-exec-sql').addEventListener('click', execSqlQuery);
+    $id('sql-query-input').addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        execSqlQuery();
+      }
+    });
+    $id('sql-templates').addEventListener('change', (e) => {
+      if (e.target.value) {
+        $id('sql-query-input').value = e.target.value;
+        execSqlQuery();
+      }
+    });
+
+    // Initial Hub load & polling
+    refreshHub();
+    setInterval(refreshHub, POLL_MS);
+  }
+
+  /* ============================================================ */
+  /* TOAST & CONFIRM MODAL SYSTEM                                   */
+  /* ============================================================ */
+
+  /* TOAST TYPES */
+  const TOAST_TYPES = {
+    info: { icon: 'info', bg: 'bg-cyan-accent/15', border: 'border-cyan-accent/30', iconBg: 'bg-cyan-accent/20 text-cyan-accent' },
+    success: { icon: 'check-circle-2', bg: 'bg-emerald-glow/15', border: 'border-emerald-glow/30', iconBg: 'bg-emerald-glow/20 text-emerald-glow' },
+    warning: { icon: 'alert-triangle', bg: 'bg-amber-accent/15', border: 'border-amber-accent/30', iconBg: 'bg-amber-accent/20 text-amber-accent' },
+    error: { icon: 'alert-octagon', bg: 'bg-rose-pulse/15', border: 'border-rose-pulse/30', iconBg: 'bg-rose-pulse/20 text-rose-pulse' },
+  };
+
+  /* Show toast notification */
+  function toast({
+    title = 'Thông báo',
+    message = '',
+    type = 'info',
+    duration = 5000,
+    dismissible = true,
+    onDismiss = null,
+  } = {}) {
+    const template = $id('toast-template');
+    const container = $id('toast-container');
+    const clone = template.content.cloneNode(true);
+    const toastEl = clone.querySelector('.toast');
+    const iconEl = toastEl.querySelector('i');
+    const titleEl = toastEl.querySelector('.font-bold');
+    const messageEl = toastEl.querySelector('.text-[11px]');
+    const dismissBtn = toastEl.querySelector('.toast-dismiss');
+
+    const style = TOAST_TYPES[type] || TOAST_TYPES.info;
+    toastEl.className += ` ${style.bg} ${style.border}`;
+    iconEl.className += ` ${style.iconBg.split(' ')[1]}`;
+    iconEl.setAttribute('data-lucide', style.icon);
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    toastEl.dataset.dismissible = dismissible;
+
+    const dismiss = () => {
+      toastEl.style.opacity = '0';
+      toastEl.style.transform = 'translateX(20px)';
+      setTimeout(() => {
+        if (toastEl.parentNode) toastEl.parentNode.removeChild(toastEl);
+        if (typeof onDismiss === 'function') onDismiss();
+      }, 300);
+    };
+
+    if (dismissible) {
+      dismissBtn.addEventListener('click', dismiss);
+    } else {
+      dismissBtn.remove();
+    }
+
+    toastEl.addEventListener('click', (e) => {
+      if (e.target === dismissBtn) return;
+      dismiss();
+    });
+
+    container.appendChild(toastEl);
+    lucide.createIcons();
+
+    if (duration > 0) {
+      setTimeout(dismiss, duration);
+    }
+
+    return { dismiss };
+  }
+
+  /* Promise-based confirm modal */
+  function confirmModal({
+    title = 'Xác nhận hành động',
+    message = 'Bạn có chắc muốn thực hiện thao tác này?',
+    details = '',
+    type = 'warning',
+    confirmText = 'Xác nhận',
+    cancelText = 'Hủy',
+  } = {}) {
+    return new Promise((resolve) => {
+      const modal = $id('confirm-modal');
+      const icon = $id('confirm-icon');
+      const titleEl = $id('confirm-title');
+      const messageEl = $id('confirm-message');
+      const detailsEl = $id('confirm-details');
+      const cancelBtn = $id('confirm-cancel');
+      const okBtn = $id('confirm-ok');
+
+      const style = TOAST_TYPES[type] || TOAST_TYPES.warning;
+      icon.className = `w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${style.iconBg}`;
+      icon.innerHTML = `<i data-lucide="${style.icon}" class="w-4 h-4"></i>`;
+
+      titleEl.textContent = title;
+      messageEl.textContent = message;
+
+      if (details) {
+        detailsEl.textContent = details;
+        detailsEl.classList.remove('hidden');
+      } else {
+        detailsEl.classList.add('hidden');
+      }
+
+      okBtn.textContent = confirmText;
+      cancelBtn.textContent = cancelText;
+
+      const okHandler = () => {
+        cleanup();
+        resolve(true);
+      };
+
+      const cancelHandler = () => {
+        cleanup();
+        resolve(false);
+      };
+
+      const escapeHandler = (e) => {
+        if (e.key === 'Escape') cancelHandler();
+      };
+
+      const backdropHandler = (e) => {
+        if (e.target === modal) cancelHandler();
+      };
+
+      function cleanup() {
+        modal.classList.add('hidden');
+        okBtn.removeEventListener('click', okHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        document.removeEventListener('keydown', escapeHandler);
+        modal.removeEventListener('click', backdropHandler);
+      }
+
+      okBtn.addEventListener('click', okHandler);
+      cancelBtn.addEventListener('click', cancelHandler);
+      document.addEventListener('keydown', escapeHandler);
+      modal.addEventListener('click', backdropHandler);
+
+      modal.classList.remove('hidden');
+      lucide.createIcons();
+    });
+  }
+
+  /* Quick helper for WAP actions */
+  function wapConfirm(action, incidentId, details = {}) {
+    const configs = {
+      publish_prod: {
+        title: '🚀 PUBLISH TO PRODUCTION',
+        message: 'Xác nhận PUBLISH lên bảng production?\n\nHệ thống sẽ tráo bảng bóng thành bảng thật trong một transaction. Bảng cũ bị thay thế.',
+        type: 'warning',
+        details: `🔧 ${details.prod_table || 'production'} → ${details.shadow_table || 'shadow'}\n📊 ${details.rows_prod_before || '?'} → ${details.rows_shadow || '?'} dòng`,
+        confirmText: 'PUBLISH',
+      },
+      cancel_shadow: {
+        title: '🛑 Huỷ phương án',
+        message: 'Huỷ phương án và xoá bảng bóng?\n\nBảng production chưa bị thay đổi nên không mất dữ liệu.',
+        type: 'warning',
+        details: `🧪 Bảng bóng: ${details.shadow_table || 'shadow_*'}\n🗂️ Bảng thật: ${details.prod_table || 'production'} (nguyên vẹn)`,
+        confirmText: 'Huỷ & Xoá',
+      },
+      approve_shadow: {
+        title: '🧪 Duyệt chạy thử trên Staging',
+        message: 'Chạy script vá trên bảng bóng. Agent 2 sẽ nghiệm thu ngay trên đó.\n\nBảng production KHÔNG bị chạm ở bước này.',
+        type: 'info',
+        details: `🗂️ Bảng thật: ${details.prod_table || '?'} (không chạm)\n🧪 Bảng bóng: ${details.shadow_table || 'shadow_*'}`,
+        confirmText: 'Duyệt chạy thử',
+      },
+      manual_override: {
+        title: '✏️ Sửa SQL thủ công',
+        message: 'Mở SQL Studio để sửa script staging bằng tay.\n\nScript vẫn qua guard + preflight trước khi chạy.',
+        type: 'info',
+        confirmText: 'Mở SQL Studio',
+      },
+    };
+
+    const cfg = configs[action] || {
+      title: 'Xác nhận',
+      message: `Thực hiện hành động "${action}"?`,
+      type: 'warning',
+    };
+
+    return confirmModal(cfg);
+  }
+
+  /* Wrapper for API calls with toast feedback */
+  async function apiWithFeedback(endpoint, options = {}, feedback = {}) {
+    const loadingId = feedback.loadingId || Math.random().toString(36).substr(2, 6);
+    showLoading(feedback.loadingText || 'Đang xử lý...', loadingId);
+
+    try {
+      const res = await api(endpoint, options);
+      hideLoading(loadingId);
+
+      if (feedback.successToast) {
+        toast({
+          title: feedback.successTitle || 'Thành công',
+          message: feedback.successMessage || feedback.successToast,
+          type: 'success',
+          duration: 4000,
+        });
+      }
+
+      return res;
+    } catch (err) {
+      hideLoading(loadingId);
+
+      toast({
+        title: feedback.errorTitle || 'Lỗi',
+        message: feedback.errorMessage || err.message || 'Không thực hiện được',
+        type: 'error',
+        duration: 6000,
+      });
+
+      throw err;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+  </script>
+
+  <!-- ============================================================ -->
+  <!-- CONFIRM MODAL SYSTEM                                          -->
+  <!-- ============================================================ -->
+  <div id="confirm-modal" class="hidden fixed inset-0 z-[130] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card rounded-2xl w-full max-w-md border border-white/20 shadow-2xl shadow-black/70">
+      <div class="p-5 space-y-4">
+        <div class="flex items-center gap-2">
+          <div id="confirm-icon" class="w-5 h-5 rounded-full flex items-center justify-center shrink-0"></div>
+          <h3 id="confirm-title" class="text-sm font-bold text-white"></h3>
+        </div>
+        <p id="confirm-message" class="text-[13px] text-slate-300 leading-relaxed whitespace-pre-line"></p>
+        <div id="confirm-details" class="hidden p-3 rounded-lg bg-surface-2/80 border border-white/10 text-[11px] font-mono text-slate-400 overflow-auto max-h-[120px] whitespace-pre-line"></div>
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button id="confirm-cancel" class="px-4 py-2 rounded-xl text-xs font-semibold bg-surface-2 text-slate-300 border border-white/10 hover:bg-surface-3">
+            Hủy
+          </button>
+          <button id="confirm-ok" class="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-rose-pulse to-rose-600 text-white shadow-lg shadow-rose-pulse/25 hover:shadow-rose-pulse/40">
+            Xác nhận
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -19,6 +19,7 @@ Nguyên tắc thiết kế:
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -69,12 +70,65 @@ class RiskLevel(str, Enum):
 
 
 class IncidentStatus(str, Enum):
+    """
+    State machine của một sự cố theo mô hình Write–Audit–Publish.
+
+    Luồng chuẩn (Two-Phase Human-in-the-loop):
+
+        DETECTED
+          -> INVESTIGATING            Agent 1 điều tra
+          -> WAITING_SHADOW_APPROVAL  đã có plan qua preflight, chờ engineer duyệt BƯỚC 1
+          -> STAGING_VERIFYING        đã chạy trên shadow table, Agent 2 đang nghiệm thu
+          -> READY_FOR_PRODUCTION     Agent 2 PASS, chờ engineer duyệt BƯỚC 2
+          -> PUBLISHED_RESOLVED       đã atomic swap sang bảng thật
+
+    Nhánh thất bại:
+
+          STAGING_VERIFYING -> AUDIT_FAILED_TRIAGE   Agent 2 bắt lỗi, engineer chọn 1 trong 3:
+                                                     re-plan / sửa SQL tay / huỷ
+          bất kỳ -> CANCELLED                        huỷ, shadow table đã được dọn
+
+    Các trạng thái cũ (`WAITING_FOR_APPROVAL`, `EXECUTING`, `RESOLVED`, `FAILED`) được
+    giữ lại: dữ liệu incident đã ghi trong DuckDB từ trước vẫn phải đọc được, và luồng
+    CLI một bước vẫn dùng. Không xoá enum đang có dữ liệu ngoài đời là nguyên tắc.
+    """
+
+    # --- Luồng WAP (đang dùng) ---------------------------------------------
     INVESTIGATING = "INVESTIGATING"
+    WAITING_SHADOW_APPROVAL = "WAITING_SHADOW_APPROVAL"
+    STAGING_VERIFYING = "STAGING_VERIFYING"
+    READY_FOR_PRODUCTION = "READY_FOR_PRODUCTION"
+    AUDIT_FAILED_TRIAGE = "AUDIT_FAILED_TRIAGE"
+    PUBLISHED_RESOLVED = "PUBLISHED_RESOLVED"
+    CANCELLED = "CANCELLED"
+
+    # --- Giữ tương thích ngược ---------------------------------------------
     WAITING_FOR_APPROVAL = "WAITING_FOR_APPROVAL"
     EXECUTING = "EXECUTING"
     RESOLVED = "RESOLVED"
     REJECTED = "REJECTED"
     FAILED = "FAILED"
+
+
+#: Trạng thái mà engineer đang được chờ quyết định (UI phải hiện Action Bar).
+AWAITING_HUMAN_STATUSES = frozenset(
+    {
+        IncidentStatus.WAITING_SHADOW_APPROVAL.value,
+        IncidentStatus.READY_FOR_PRODUCTION.value,
+        IncidentStatus.AUDIT_FAILED_TRIAGE.value,
+        IncidentStatus.WAITING_FOR_APPROVAL.value,
+    }
+)
+
+#: Trạng thái kết thúc — không còn hành động nào.
+TERMINAL_STATUSES = frozenset(
+    {
+        IncidentStatus.PUBLISHED_RESOLVED.value,
+        IncidentStatus.CANCELLED.value,
+        IncidentStatus.RESOLVED.value,
+        IncidentStatus.REJECTED.value,
+    }
+)
 
 
 # Map severity -> icon để UI hiển thị nhanh
@@ -86,12 +140,37 @@ SEVERITY_ICON: Dict[str, str] = {
 }
 
 STATUS_ICON: Dict[str, str] = {
+    "DETECTED": "🚨",
     "INVESTIGATING": "🔍",
+    "WAITING_SHADOW_APPROVAL": "🧪",
+    "STAGING_VERIFYING": "🕵️‍♀️",
+    "READY_FOR_PRODUCTION": "🚀",
+    "AUDIT_FAILED_TRIAGE": "🛑",
+    "PUBLISHED_RESOLVED": "🎉",
+    "CANCELLED": "🗑️",
+    # tương thích ngược
     "WAITING_FOR_APPROVAL": "⏸️",
     "EXECUTING": "⚙️",
     "RESOLVED": "✅",
     "REJECTED": "🚫",
     "FAILED": "❌",
+}
+
+#: Nhãn tiếng Việt cho từng trạng thái (UI và Chainlit dùng chung một nguồn).
+STATUS_LABEL: Dict[str, str] = {
+    "DETECTED": "Mới phát hiện",
+    "INVESTIGATING": "Đang điều tra",
+    "WAITING_SHADOW_APPROVAL": "Chờ duyệt chạy thử trên Staging",
+    "STAGING_VERIFYING": "Đang nghiệm thu trên Staging",
+    "READY_FOR_PRODUCTION": "Sẵn sàng Publish lên Production",
+    "AUDIT_FAILED_TRIAGE": "Nghiệm thu thất bại — chờ engineer chọn hướng",
+    "PUBLISHED_RESOLVED": "Đã publish lên Production",
+    "CANCELLED": "Đã huỷ, staging đã dọn",
+    "WAITING_FOR_APPROVAL": "Chờ phê duyệt",
+    "EXECUTING": "Đang thực thi",
+    "RESOLVED": "Đã xử lý",
+    "REJECTED": "Bị từ chối",
+    "FAILED": "Thất bại",
 }
 
 
@@ -365,6 +444,56 @@ class RemediationPlan(BaseModel):
         default=True, description="Luôn True trong kiến trúc HITL này."
     )
 
+    # -- Write–Audit–Publish -------------------------------------------------
+    # `executable_command` phía trên là script THÔ do LLM soạn (theo tên bảng thật).
+    # Bốn field dưới đây là thứ hệ thống thực sự chạy, và chúng chỉ chạm vùng staging.
+    target_production_table: str = Field(
+        default="",
+        description="Bảng production sẽ được vá, ví dụ 'stg_orders'. KHÔNG bị ghi ở phase Write.",
+    )
+    shadow_table_name: str = Field(
+        default="",
+        description="Bảng bóng nơi mọi lệnh vá thực sự chạy, ví dụ 'shadow_stg_orders'.",
+    )
+    shadow_execution_script: str = Field(
+        default="",
+        description=(
+            "Script chạy ở phase Write: tạo shadow table từ bảng thật, đẩy dòng bẩn sang "
+            "quarantine, rồi xoá dòng bẩn khỏi shadow. Chỉ được ghi vào shadow_* / quarantine_*."
+        ),
+    )
+    publish_script: str = Field(
+        default="",
+        description=(
+            "Script atomic swap để engineer xem trước ở bước 2. Việc chạy thật do "
+            "`data/wap.atomic_publish()` đảm nhiệm vì cần kiểm schema và quản transaction."
+        ),
+    )
+    preflight_passed: bool = Field(
+        default=False,
+        description=(
+            "Script đã qua EXPLAIN + dry-run rollback chưa. Plan chưa preflight thì KHÔNG "
+            "được trình cho engineer duyệt."
+        ),
+    )
+    preflight_error: str = Field(
+        default="",
+        description="Thông báo lỗi của lần preflight gần nhất (rỗng nếu đã pass).",
+    )
+    plan_version: int = Field(
+        default=1,
+        description="1 = plan gốc, 2 = plan sau khi re-plan từ feedback của Agent 2.",
+    )
+    script_source: str = Field(
+        default="",
+        description=(
+            "Ai viết script staging đang dùng: 'llm' (agent tự viết), 'llm_rewritten' "
+            "(script agent viết theo bảng thật, hệ thống đổi sang shadow), 'system' "
+            "(hệ thống tự dựng từ metadata dbt test), 'human' (engineer sửa tay). "
+            "Ghi lại để truy vết khi hậu kiểm."
+        ),
+    )
+
     @field_validator("action_type", mode="before")
     @classmethod
     def _norm_action(cls, v: Any) -> ActionType:
@@ -375,7 +504,13 @@ class RemediationPlan(BaseModel):
     def _norm_risk(cls, v: Any) -> RiskLevel:
         return _coerce_enum(v, RiskLevel, RiskLevel.MEDIUM)
 
-    @field_validator("executable_command", "verification_sql", mode="before")
+    @field_validator(
+        "executable_command",
+        "verification_sql",
+        "shadow_execution_script",
+        "publish_script",
+        mode="before",
+    )
     @classmethod
     def _clean_sql(cls, v: Any) -> str:
         """Bóc markdown fence nếu LLM trả ```sql ... ```."""
@@ -391,6 +526,21 @@ class RemediationPlan(BaseModel):
     def statements(self) -> List[str]:
         """Tách executable_command thành từng câu lệnh SQL riêng."""
         return [s.strip() for s in self.executable_command.split(";") if s.strip()]
+
+    @property
+    def shadow_statements(self) -> List[str]:
+        """Tách script staging thành từng câu lệnh riêng."""
+        return [s.strip() for s in self.shadow_execution_script.split(";") if s.strip()]
+
+    @property
+    def is_stageable(self) -> bool:
+        """Có đủ điều kiện để bấm [Duyệt chạy thử trên Staging] hay chưa."""
+        return bool(
+            self.shadow_execution_script.strip()
+            and self.shadow_table_name.strip()
+            and self.target_production_table.strip()
+            and self.preflight_passed
+        )
 
 
 class AgentReport(BaseModel):
@@ -496,15 +646,52 @@ class AgentReport(BaseModel):
             "",
             self.remediation.summary or "_(chưa có mô tả)_",
             "",
-            "**Lệnh sẽ được thực thi trên DuckDB (chờ bạn duyệt):**",
-            "```sql",
-            self.remediation.executable_command or "-- (chưa có lệnh)",
-            "```",
-            "**Câu lệnh verify sau khi vá:**",
-            "```sql",
-            self.remediation.verification_sql or "-- (chưa có)",
-            "```",
         ]
+
+        plan = self.remediation
+        if plan.shadow_execution_script:
+            # Kiến trúc WAP: engineer duyệt việc chạy trên bảng bóng, KHÔNG phải bảng thật.
+            preflight_badge = (
+                "✅ Preflight PASSED (đã EXPLAIN + dry-run, không còn Binder Error)"
+                if plan.preflight_passed
+                else f"❌ Preflight FAILED: {plan.preflight_error or 'chưa chạy preflight'}"
+            )
+            parts += [
+                f"> 🛡️ **Zero Blast Radius.** Bảng production `{plan.target_production_table}` "
+                f"sẽ **không bị chạm** ở bước này. Mọi lệnh vá chạy trên bảng bóng "
+                f"`{plan.shadow_table_name}`.",
+                "",
+                f"**Kiểm tra trước khi trình anh:** {preflight_badge}",
+                "",
+                f"**Bước 1 — script chạy trên STAGING `{plan.shadow_table_name}` "
+                "(chờ anh duyệt):**",
+                "```sql",
+                plan.shadow_execution_script,
+                "```",
+                "**Câu verify (em sẽ chạy trên bảng bóng):**",
+                "```sql",
+                plan.verification_sql or "-- (chưa có)",
+                "```",
+                f"**Bước 2 — chỉ mở sau khi Agent 2 nghiệm thu ĐẠT** (atomic swap sang "
+                f"`{plan.target_production_table}`):",
+                "```sql",
+                plan.publish_script or "-- (sẽ sinh ở bước publish)",
+                "```",
+            ]
+        else:
+            parts += [
+                "**Lệnh sẽ được thực thi trên DuckDB (chờ bạn duyệt):**",
+                "```sql",
+                plan.executable_command or "-- (chưa có lệnh)",
+                "```",
+                "**Câu lệnh verify sau khi vá:**",
+                "```sql",
+                plan.verification_sql or "-- (chưa có)",
+                "```",
+            ]
+
+        if plan.plan_version > 1:
+            parts += ["", f"> 🔁 Đây là **plan v{plan.plan_version}** (đã sửa theo phản hồi)."]
         if self.remediation.rollback_hint:
             parts += ["", f"**Rollback:** {self.remediation.rollback_hint}"]
         if self.next_steps:
@@ -515,8 +702,15 @@ class AgentReport(BaseModel):
         parts += [
             "",
             "---",
-            "⏸️ **Đang chờ phê duyệt (Human-in-the-loop).** Bạn có thể chat để chất vấn Agent "
-            "(ví dụ: *“tại sao lại lỗi?”*, *“show thử 5 dòng dữ liệu lỗi”*) trước khi bấm duyệt.",
+            (
+                "🧪 **Đang chờ anh duyệt BƯỚC 1 — chạy thử trên Staging.** Bảng thật chưa bị "
+                "thay đổi gì cả, nên bấm duyệt ở đây là an toàn ạ. Anh vẫn có thể chat để "
+                "chất vấn em (*“tại sao lại lỗi?”*, *“show thử 5 dòng dữ liệu lỗi”*) trước khi bấm."
+                if self.remediation.shadow_execution_script
+                else "⏸️ **Đang chờ phê duyệt (Human-in-the-loop).** Bạn có thể chat để chất vấn "
+                "Agent (ví dụ: *“tại sao lại lỗi?”*, *“show thử 5 dòng dữ liệu lỗi”*) trước khi "
+                "bấm duyệt."
+            ),
         ]
         return "\n".join(parts)
 
@@ -647,6 +841,26 @@ class AuditReport(BaseModel):
     )
     generated_at: datetime = Field(default_factory=_utcnow)
 
+    # -- Write–Audit–Publish -------------------------------------------------
+    shadow_table: str = Field(
+        default="",
+        description="Bảng bóng đã được nghiệm thu. Agent 2 soi shadow, KHÔNG soi bảng thật.",
+    )
+    is_ready_for_production: bool = Field(
+        default=False,
+        description=(
+            "Cổng mở nút [Publish to Production]. Do validator tự suy từ `checks`, "
+            "KHÔNG nhận giá trị từ LLM — nên LLM không thể tự mở cổng publish."
+        ),
+    )
+    failed_details: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Hồ sơ lỗi máy đọc được, gửi ngược cho Agent 1 để re-plan: error_message, "
+            "failed_checks, missing_columns, remaining_violations, root_cause_hint."
+        ),
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _accept_aliases(cls, data: Any) -> Any:
@@ -704,7 +918,97 @@ class AuditReport(BaseModel):
             self.verdict = "AUDIT_FAILED"
         else:
             self.verdict = "AUDIT_PASSED"
+
+        # Cổng publish suy từ cùng một bằng chứng, không phải một cờ riêng mà LLM set
+        # được. Hai nguồn sự thật cho cùng một quyết định là chỗ để lỗi lọt qua.
+        self.is_ready_for_production = self.verdict == "AUDIT_PASSED"
+
+        # Khi FAIL: tự đóng gói hồ sơ lỗi máy đọc được cho vòng re-plan.
+        if not self.is_ready_for_production:
+            self.failed_details = self._build_failed_details(self.failed_details)
+        else:
+            self.failed_details = None
         return self
+
+    def _build_failed_details(
+        self, existing: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Gói lý do thất bại thành dict để Agent 1 đọc được bằng máy.
+
+        Quan trọng là phần `missing_columns`: lỗi kinh điển của vòng trước là câu SQL
+        tham chiếu cột không tồn tại. Bóc sẵn tên cột từ thông báo Binder Error giúp
+        Agent 1 biết phải `DESCRIBE` bảng nào thay vì đoán lại từ đầu.
+        """
+        blocking = [c for c in self.checks if c.is_blocking_failure]
+        failed = [c for c in self.checks if not c.passed]
+        messages = [
+            f"{c.check_name}: kỳ vọng {c.expected_result or 'N/A'}, "
+            f"thực tế {c.actual_result or 'N/A'}"
+            for c in (blocking or failed)
+        ]
+
+        missing_columns: List[str] = []
+        remaining_violations: Optional[int] = None
+        for check in failed:
+            blob = f"{check.actual_result} {check.finding}"
+            for match in re.finditer(
+                r'column\s+"?([A-Za-z_][A-Za-z_0-9]*)"?\s+(?:does not exist|not found)',
+                blob,
+                re.IGNORECASE,
+            ):
+                if match.group(1) not in missing_columns:
+                    missing_columns.append(match.group(1))
+            for match in re.finditer(
+                r'Referenced column "([^"]+)" not found', blob, re.IGNORECASE
+            ):
+                if match.group(1) not in missing_columns:
+                    missing_columns.append(match.group(1))
+            if check.category == "CLEANLINESS" and remaining_violations is None:
+                # LLM viết số dòng vi phạm theo nhiều kiểu: "63 dòng vi phạm",
+                # "63 dong vi pham" (mất dấu), "63 rows violating". Bắt cả ba dạng —
+                # con số này là thứ Agent 1 cần để biết đã sửa hết chưa.
+                found = re.search(
+                    r"(\d+)\s*(?:dòng|dong|row|rows|record|records)",
+                    str(check.actual_result),
+                    re.IGNORECASE,
+                )
+                if found:
+                    remaining_violations = int(found.group(1))
+
+        details: Dict[str, Any] = dict(existing or {})
+        details.update(
+            {
+                "audit_id": self.audit_id,
+                "verdict": self.verdict,
+                "target_table": self.target_table,
+                "shadow_table": self.shadow_table,
+                "error_message": "; ".join(messages)[:1500] or "Không có hạng mục nào đạt.",
+                "failed_checks": [
+                    {
+                        "check_name": c.check_name,
+                        "category": c.category,
+                        "severity": c.severity,
+                        "expected": c.expected_result,
+                        "actual": c.actual_result,
+                        "query": c.query_executed,
+                        "finding": c.finding,
+                    }
+                    for c in failed
+                ],
+                "blocking_count": len(blocking),
+                "recommended_action": self.recommended_action or "INVESTIGATE",
+            }
+        )
+        if missing_columns:
+            details["missing_columns"] = missing_columns
+            details["root_cause_hint"] = (
+                f"SQL tham chiếu cột không tồn tại: {', '.join(missing_columns)}. "
+                "Hãy DESCRIBE lại bảng liên quan trước khi viết script v2."
+            )
+        if remaining_violations is not None:
+            details["remaining_violations"] = remaining_violations
+        return details
 
     # -- Thống kê & render ------------------------------------------------------
 
@@ -737,6 +1041,12 @@ class AuditReport(BaseModel):
             f"| 🎯 Sự cố | `{self.audited_incident_id or 'N/A'}` |",
             f"| 🧠 Model nghiệm thu | `{self.auditor_model or 'N/A'}` |",
             f"| 🗂️ Bảng chính | `{self.target_table}` |",
+            (
+                f"| 🧪 Bảng em đã soi | `{self.shadow_table}` (staging — bảng thật chưa bị "
+                "thay đổi) |"
+                if self.shadow_table
+                else f"| 🧪 Bảng em đã soi | `{self.target_table}` |"
+            ),
             f"| 🧊 Bảng cách ly | `{self.quarantine_table or '(không dùng quarantine)'}` |",
             f"| 🧾 Kết luận | {badge} |",
             f"| 📊 Hạng mục đạt | **{self.passed_count}/{len(self.checks)}** |",
@@ -776,14 +1086,40 @@ class AuditReport(BaseModel):
         if self.auditor_notes:
             parts += ["", f"> 📝 **Ghi chú của em:** {self.auditor_notes}"]
 
+        if self.failed_details:
+            hint = self.failed_details.get("root_cause_hint")
+            missing = self.failed_details.get("missing_columns")
+            parts += ["", "### 🔬 Hồ sơ lỗi em gửi lại cho anh SRE Agent"]
+            if missing:
+                parts.append(f"- 🧩 Cột không tồn tại: `{', '.join(missing)}`")
+            if hint:
+                parts.append(f"- 💡 {hint}")
+            if self.failed_details.get("remaining_violations") is not None:
+                parts.append(
+                    f"- 🩸 Còn **{self.failed_details['remaining_violations']}** dòng vi phạm "
+                    "trên bảng bóng"
+                )
+
         parts += [
             "",
             "---",
             (
-                "🎉 Dữ liệu đã sạch và không mất mát gì hết ạ, anh yên tâm ký nghiệm thu nhen! 💚"
+                (
+                    "🎉 Bảng bóng đã sạch và không mất mát gì hết ạ — em bật cổng "
+                    "**[🚀 Publish to Production]** cho anh rồi nhen! 💚"
+                    if self.shadow_table
+                    else "🎉 Dữ liệu đã sạch và không mất mát gì hết ạ, anh yên tâm ký nghiệm "
+                    "thu nhen! 💚"
+                )
                 if ok
-                else "😰 Em **chưa dám** cấp chứng nhận đâu ạ. Anh xem mục chặn ở trên rồi "
-                "cân nhắc rollback theo `rollback_hint` của anh SRE Agent nhé! 🙏"
+                else (
+                    "😰 Em **chưa dám** cấp chứng nhận nên cổng publish vẫn đóng ạ. Bảng thật "
+                    "vẫn nguyên vẹn 100%, anh chọn 1 trong 3: cho anh SRE Agent **re-plan**, "
+                    "**sửa SQL tay**, hoặc **huỷ & dọn staging** nhé! 🙏"
+                    if self.shadow_table
+                    else "😰 Em **chưa dám** cấp chứng nhận đâu ạ. Anh xem mục chặn ở trên rồi "
+                    "cân nhắc rollback theo `rollback_hint` của anh SRE Agent nhé! 🙏"
+                )
             ),
         ]
         return "\n".join(parts)
@@ -818,9 +1154,12 @@ REPORT_JSON_TEMPLATE = """{
   "remediation": {
     "action_type": "QUARANTINE_DATA | BACKFILL | RERUN_PIPELINE | SCALE_RESOURCE | MANUAL_FIX",
     "summary": "string - giải thích cho engineer",
-    "executable_command": "string - SQL DuckDB hợp lệ, nhiều câu tách bằng ';'",
-    "verification_sql": "string - SELECT COUNT(*) ... kỳ vọng = 0 sau khi vá",
-    "rollback_hint": "string",
+    "target_production_table": "string - bảng thật, ví dụ 'stg_orders' (KHÔNG ghi vào bảng này)",
+    "shadow_table_name": "string - bảng bóng, PHẢI là 'shadow_' + tên bảng thật",
+    "shadow_execution_script": "string - script CHỈ ghi vào shadow_* / quarantine_*: (1) CREATE OR REPLACE TABLE shadow_x AS SELECT * FROM x; (2) CREATE OR REPLACE TABLE quarantine_x AS SELECT *, 'REASON'::VARCHAR AS quarantine_reason, CURRENT_TIMESTAMP AS quarantined_at FROM x WHERE <dòng bẩn>; (3) DELETE FROM shadow_x WHERE <dòng bẩn>. TUYỆT ĐỐI KHÔNG rebuild bảng mart_* ở đây.",
+    "executable_command": "string - để rỗng: kiến trúc WAP không cho ghi trực tiếp bảng thật",
+    "verification_sql": "string - SELECT COUNT(*) ... kỳ vọng = 0, viết theo tên bảng thật, hệ thống tự đổi sang shadow",
+    "rollback_hint": "string - ở WAP thì rollback = drop shadow table, bảng thật không bị chạm",
     "risk_level": "LOW | MEDIUM | HIGH",
     "requires_human_approval": true
   },
@@ -852,6 +1191,68 @@ AUDIT_JSON_TEMPLATE = """{
 }"""
 
 
+# ---------------------------------------------------------------------------
+# 5. REQUEST CONTRACT — thao tác cứu hộ do engineer bấm trên UI
+# ---------------------------------------------------------------------------
+
+
+class ReplanRequest(BaseModel):
+    """
+    Engineer bấm `[🤖 Cho Agent 1 Re-plan]`.
+
+    `retry_count` là chốt cứng của Bounded Reflection Loop: agent chỉ được sửa lại
+    **một lần**. Không giới hạn thì một agent hiểu sai schema sẽ lặp vô hạn, đốt token
+    và giữ sự cố ở trạng thái lửng lơ. Hết lượt thì bắt buộc chuyển cho người.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    incident_id: str = Field(description="Mã sự cố cần lập lại kế hoạch.")
+    feedback: str = Field(
+        default="",
+        description="Phản hồi cho Agent 1: thường là `failed_details` của Agent 2 dạng text.",
+    )
+    retry_count: int = Field(
+        default=0, ge=0, description="Số lần đã re-plan trước đó. >= MAX_REPLAN thì từ chối."
+    )
+    failed_details: Optional[Dict[str, Any]] = Field(
+        default=None, description="Hồ sơ lỗi máy đọc được từ AuditReport."
+    )
+
+
+class ManualOverrideRequest(BaseModel):
+    """
+    Engineer bấm `[✏️ Sửa SQL thủ công]` và nộp SQL tự viết.
+
+    SQL này vẫn phải đi qua đúng các cổng như script của agent: guard phạm vi ghi
+    (chỉ staging) và preflight. Người sửa tay cũng gõ sai cột như agent, và sự cố ở
+    môi trường thật không phân biệt lỗi do ai gây ra.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    incident_id: str = Field(description="Mã sự cố đang xử lý.")
+    custom_sql: str = Field(description="Script SQL do engineer tự viết, chạy trên staging.")
+    note: str = Field(default="", description="Ghi chú của engineer, vào audit log.")
+    rerun_audit: bool = Field(
+        default=True, description="Chạy lại Agent 2 nghiệm thu sau khi áp SQL sửa tay."
+    )
+
+    @field_validator("custom_sql", mode="before")
+    @classmethod
+    def _clean(cls, v: Any) -> str:
+        text = str(v or "").strip()
+        if text.startswith("```"):
+            text = "\n".join(
+                ln for ln in text.splitlines() if not ln.strip().startswith("```")
+            ).strip()
+        return text
+
+
+#: Số lần re-plan tối đa cho một sự cố (Bounded Reflection Loop).
+MAX_REPLAN_ATTEMPTS = 1
+
+
 __all__ = [
     "IncidentType",
     "Severity",
@@ -860,6 +1261,9 @@ __all__ = [
     "IncidentStatus",
     "SEVERITY_ICON",
     "STATUS_ICON",
+    "STATUS_LABEL",
+    "AWAITING_HUMAN_STATUSES",
+    "TERMINAL_STATUSES",
     "IncidentInput",
     "Diagnosis",
     "ImpactAssessment",
@@ -867,6 +1271,9 @@ __all__ = [
     "AgentReport",
     "AuditCheckItem",
     "AuditReport",
+    "ReplanRequest",
+    "ManualOverrideRequest",
+    "MAX_REPLAN_ATTEMPTS",
     "REPORT_JSON_TEMPLATE",
     "AUDIT_JSON_TEMPLATE",
 ]
