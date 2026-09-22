@@ -32,6 +32,7 @@ STEP_ICON: Dict[str, str] = {
     "tool_execute_remediation": "🛠️",
     "tool_verify_health": "🧪",
     "tool_get_incident_context": "🧭",
+    "tool_get_job_history": "🕘",
 }
 
 
@@ -79,6 +80,22 @@ def format_tool_output(event: ToolEvent) -> str:
     if event.name == "tool_verify_health":
         return f"{'✅' if res.get('healthy') else '⚠️'} {res.get('verdict', '')}"
 
+    if event.name == "tool_get_job_history":
+        runs = res.get("runs") or []
+        compact = [
+            {
+                "job_id": r.get("job_id"),
+                "status": r.get("status"),
+                "tests_failed": r.get("tests_failed"),
+                "started_at": r.get("started_at"),
+            }
+            for r in runs
+        ]
+        hint = ""
+        if res.get("known_job_ids"):
+            hint = f"\n\n_Không có job tên đó. Job hiện có: `{', '.join(res['known_job_ids'])}`_"
+        return f"✅ {len(runs)} lượt chạy\n\n" + markdown_table(compact) + hint
+
     if event.name == "tool_get_incident_context":
         baseline = res.get("baseline_metrics") or {}
         lines = [
@@ -110,6 +127,7 @@ def step_name(event: ToolEvent) -> str:
         "tool_execute_remediation": "Execute remediation",
         "tool_verify_health": f"Verify {event.arguments.get('table_name', '?')}",
         "tool_get_incident_context": "Incident context",
+        "tool_get_job_history": "Job history",
     }.get(event.name, event.name)
     safe = _AVATAR_SAFE_RE.sub("", base).strip()
     return (safe[:80] or event.name)

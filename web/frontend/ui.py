@@ -35,7 +35,7 @@ from fastapi.concurrency import run_in_threadpool
 import config
 from ai import tools, worker
 from ai.agent import DataReliabilityAgent
-from ai.auditor import DataAuditorAgent, run_audit_headless
+from ai.auditor import DataAuditorAgent, audit_locked_status, run_audit_headless
 from ai.llm import LLMSettings, ToolEvent
 from ai.schemas import (
     MAX_REPLAN_ATTEMPTS,
@@ -438,6 +438,50 @@ async def on_message(message: cl.Message) -> None:
     if not question:
         return
 
+    # --- Chốt chặn state leak: incident đã đóng thì chỉ tư vấn, không chạy WAP ---
+    # DB là nguồn sự thật (flag session có thể lỗi thời sau restart/tab khác).
+    # Không có chốt này, agent.ask() với full tool schema sẽ chạy lại preflight +
+    # soạn shadow mới, và nhánh cuối hàm còn gắn lại nút [Duyệt] cho ca đã xong.
+    incident_id = ""
+    if getattr(agent, "incident", None) is not None:
+        incident_id = agent.incident.incident_id or ""
+    if not incident_id:
+        _rep = cl.user_session.get("report")
+        if _rep is not None:
+            incident_id = _rep.incident_id
+    terminal_status = ""
+    if incident_id:
+        try:
+            _st = incident_store.current_status(incident_id) or ""
+        except Exception:  # noqa: BLE001 - DB lỗi thì coi như chưa đóng, đi luồng thường
+            _st = ""
+        if _st in ("PUBLISHED_RESOLVED", "RESOLVED", "CANCELLED"):
+            terminal_status = _st
+    if terminal_status:
+        cl.user_session.set("resolved", True)
+        if terminal_status == "PUBLISHED_RESOLVED":
+            cl.user_session.set("published", True)
+        override = (
+            f"CHÚ Ý: Sự cố `{incident_id}` ĐÃ XỬ LÝ XONG (trạng thái {terminal_status}). "
+            "Tuyệt đối KHÔNG chạy lại quy trình vá dữ liệu (không preflight check, "
+            "không tạo shadow table, không đề xuất duyệt). Hãy trả lời câu hỏi của "
+            "kỹ sư như một trợ lý DataOps dựa trên dữ liệu đã có trong hội thoại "
+            "(ví dụ hướng dẫn chạy `dbt run`, giải thích kết quả) — ngắn gọn, không nút bấm."
+        )
+        thinking = cl.Message(
+            author=AUTHOR_SRE, content="💡 Ca này đã xong ạ, em trả lời tư vấn thôi ạ…"
+        )
+        await thinking.send()
+        try:
+            answer = await run_in_threadpool(agent.ask_consult, question, override)
+        except Exception as exc:  # noqa: BLE001
+            thinking.content = f"❌ Em bị lỗi khi tư vấn ạ: `{exc}`"
+            await thinking.update()
+            return
+        thinking.content = answer or "_(Agent không trả về nội dung)_"
+        await thinking.update()
+        return  # TUYỆT ĐỐI KHÔNG gắn nút Duyệt ở chế độ tư vấn
+
     # --- Engineer vừa bấm [Từ chối] -> tin nhắn này là lý do -> re-plan ---
     if cl.user_session.get("awaiting_reject_reason"):
         cl.user_session.set("awaiting_reject_reason", False)
@@ -492,6 +536,19 @@ async def on_message(message: cl.Message) -> None:
 
     if cl.user_session.get("report") is None:
         return
+    # Khoá vĩnh viễn nút audit/recheck khi incident đã đóng ở DB (tránh nút sót
+    # từ lịch sử chat gọi audit lại sau publish — shadow không còn nên chỉ FAIL oan).
+    _rr = cl.user_session.get("report")
+    _rid = _rr.incident_id if _rr else ""
+    if _rid and audit_locked_status(_rid):
+        await cl.Message(
+            author=AUTHOR_SYSTEM,
+            content=(
+                f"🔒 Ca `{_rid}` đã đóng xong — mọi nút audit/recheck đều đã khoá. "
+                "Anh cần gì thêm em tư vấn nhé."
+            ),
+        ).send()
+        return
     if cl.user_session.get("awaiting_recheck_decision"):
         # Agent 1 đã vá xong nhưng engineer chưa chọn recheck hay chốt luôn
         await cl.Message(
@@ -512,6 +569,37 @@ async def on_message(message: cl.Message) -> None:
             content="Anh duyệt để em thực thi remediation, hoặc hỏi em thêm gì cũng được ạ 🙆‍♀️",
             actions=approval_actions(),
         ).send()
+
+
+def _ensure_stageable(report: AgentReport) -> None:
+    """
+    Chuẩn hoá trạng thái DB trước khi chạy staging.
+
+    Chat có thể điều tra trong-session mà chưa từng ghi DB (incident còn ở
+    DETECTED) — khi đó `set_status(..., "STAGING_VERIFYING")` sẽ văng
+    `InvalidTransition`, exception thoát khỏi callback mà không có tin nhắn
+    nào nên UI treo ngay sau tool result. Hàm này đi đúng bậc thang hợp lệ
+    của state machine và persist báo cáo để các luồng khác dùng lại được.
+
+    Raise `incident_store.InvalidTransition` nếu trạng thái hiện tại không có
+    đường nào tới được staging (đã publish/huỷ/xong) — caller phải báo cho
+    engineer thay vì để treo.
+    """
+    incident_id = report.incident_id
+    cur = incident_store.current_status(incident_id) or ""
+    if not cur or incident_store.can_transition(cur, "STAGING_VERIFYING"):
+        return
+    if cur == "DETECTED":
+        incident_store.set_status(incident_id, "INVESTIGATING", error="")
+    incident_store.set_status(
+        incident_id,
+        "WAITING_SHADOW_APPROVAL",
+        report_json=report.model_dump_json(),
+        shadow_table=report.remediation.shadow_table_name or "",
+        retry_count=0,
+        ready_for_production=False,
+        error="",
+    )
 
 
 @cl.action_callback("approve")
@@ -539,6 +627,20 @@ async def on_approve(action: cl.Action) -> None:
         return
 
     plan = report.remediation
+
+    # Chuẩn hoá trạng thái DB trước khi stage: incident còn DETECTED (chat điều
+    # tra trong-session, worker chưa ghi DB) mà set STAGING_VERIFYING trực tiếp
+    # thì văng InvalidTransition → UI treo ngay sau tool result. Chuẩn hoá lỗi
+    # cũng phải báo cho engineer, không được treo câm.
+    try:
+        _ensure_stageable(report)
+    except incident_store.InvalidTransition as exc:
+        await cl.Message(
+            author=AUTHOR_SYSTEM,
+            content=f"⛔ Không duyệt được staging: `{exc}`",
+        ).send()
+        return
+
     await cl.Message(
         author=AUTHOR_ENGINEER,
         content=(
@@ -567,12 +669,18 @@ async def on_approve(action: cl.Action) -> None:
 
     execution = result.get("execution", {}) or {}
     staged = bool(result.get("ok"))
-    incident_store.set_status(
-        report.incident_id,
-        "STAGING_VERIFYING" if staged else "AUDIT_FAILED_TRIAGE",
-        shadow_table=result.get("shadow_table") or plan.shadow_table_name,
-        error=None if staged else str(result.get("error"))[:900],
-    )
+    try:
+        incident_store.set_status(
+            report.incident_id,
+            "STAGING_VERIFYING" if staged else "AUDIT_FAILED_TRIAGE",
+            shadow_table=result.get("shadow_table") or plan.shadow_table_name,
+            error=None if staged else str(result.get("error"))[:900],
+        )
+    except incident_store.InvalidTransition as exc:
+        # Trạng thái bị đổi bởi luồng khác giữa chừng (race) — báo rõ, không treo.
+        thinking.content = f"⛔ Không cập nhật được trạng thái sau staging: `{exc}`"
+        await thinking.update()
+        return
 
     if not staged:
         error_detail = str(result.get("error"))[:300]
@@ -641,15 +749,20 @@ async def on_approve(action: cl.Action) -> None:
     ready = bool(audit_payload.get("is_ready_for_production"))
     audit_report = audit_payload.get("audit_report") or {}
 
-    incident_store.set_status(
-        report.incident_id,
-        "READY_FOR_PRODUCTION" if ready else "AUDIT_FAILED_TRIAGE",
-        audit_json=json.dumps(audit_report, ensure_ascii=False, default=str),
-        ready_for_production=ready,
-        error="" if ready else str(
-            (audit_payload.get("failed_details") or {}).get("error_message") or ""
-        )[:900],
-    )
+    try:
+        incident_store.set_status(
+            report.incident_id,
+            "READY_FOR_PRODUCTION" if ready else "AUDIT_FAILED_TRIAGE",
+            audit_json=json.dumps(audit_report, ensure_ascii=False, default=str),
+            ready_for_production=ready,
+            error="" if ready else str(
+                (audit_payload.get("failed_details") or {}).get("error_message") or ""
+            )[:900],
+        )
+    except incident_store.InvalidTransition as exc:
+        auditor_msg.content = f"⛔ Không cập nhật được trạng thái sau nghiệm thu: `{exc}`"
+        await auditor_msg.update()
+        return
 
     auditor_msg.content = (
         f"{'🎖️' if ready else '🛑'} **{audit_report.get('verdict', 'AUDIT_FAILED')}** — "
@@ -768,6 +881,7 @@ async def on_publish_prod(action: cl.Action) -> None:
     await thinking.update()
 
     cl.user_session.set("published", True)
+    cl.user_session.set("resolved", True)
     incident_store.set_status(
         report.incident_id, "PUBLISHED_RESOLVED", ready_for_production=True
     )
@@ -928,6 +1042,22 @@ async def on_audit(action: cl.Action) -> None:
     await action.remove()
     if cl.user_session.get("agent") is None:
         await cl.Message(author=AUTHOR_SYSTEM, content="Chưa có ca nào để nghiệm thu ạ 🙏").send()
+        return
+
+    # Khoá audit/recheck sau publish: shadow đã bị swap/xoá, chạy lại chỉ FAIL oan.
+    _rep0: Optional[AgentReport] = cl.user_session.get("report")
+    _inc0 = cl.user_session.get("incident")
+    _iid0 = (_rep0.incident_id if _rep0 else "") or (getattr(_inc0, "incident_id", "") or "")
+    _locked0 = audit_locked_status(_iid0) if _iid0 else ""
+    if _locked0:
+        await cl.Message(
+            author=AUTHOR_SYSTEM,
+            content=(
+                f"🔒 Ca `{_iid0}` đã ở trạng thái `{_locked0}` — bảng staging đã "
+                "tráo/xoá nên không thể audit lại. Mọi nút audit/recheck đều đã khoá "
+                "vĩnh viễn ạ."
+            ),
+        ).send()
         return
 
     first_time = bool(cl.user_session.get("awaiting_recheck_decision"))

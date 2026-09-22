@@ -38,7 +38,7 @@ from fastapi.concurrency import run_in_threadpool
 import config
 from ai import tools, worker
 from ai.agent import run_headless
-from ai.auditor import run_audit_headless
+from ai.auditor import audit_locked_status, build_audit_skipped, run_audit_headless
 from ai.llm import LLMSettings
 from ai.schemas import (
     MAX_REPLAN_ATTEMPTS,
@@ -182,6 +182,12 @@ async def run_audit(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
       - `remediation_report`: báo cáo Agent 1 (chỉ dùng làm "lời khai cần kiểm chứng").
     """
     payload = payload or {}
+    iid = str(payload.get("incident_id") or "")
+    if iid:
+        # Khoá audit sau publish: shadow đã bị swap/xoá, chạy lại chỉ báo FAIL oan.
+        locked = audit_locked_status(iid)
+        if locked:
+            return build_audit_skipped(iid, locked)
     incident: Optional[IncidentInput] = None
     if isinstance(payload.get("incident"), dict):
         incident = IncidentInput(**payload["incident"])

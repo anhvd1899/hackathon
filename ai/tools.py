@@ -770,6 +770,63 @@ def tool_get_lineage(table_name: str, depth: int = 3) -> Dict[str, Any]:
     return result
 
 
+def tool_get_job_history(
+    job_id: str = "", limit: int = 5
+) -> Dict[str, Any]:
+    """
+    Tra cứu lịch sử thực thi của các ETL/dbt job từ bảng `job_runs` (READ-ONLY).
+
+    Dùng để dựng timeline nhân–quả khi điều tra root cause (lỗi bắt đầu từ run
+    nào, job ingest nào chạy ngay trước đó) và để trả lời câu hỏi của engineer
+    về tình trạng pipeline. Tuyệt đối không ghi gì — chỉ một câu SELECT.
+    """
+    try:
+        n = max(1, min(int(limit or 5), 20))
+    except (TypeError, ValueError):
+        n = 5
+    try:
+        where = ""
+        bare = ""
+        if (job_id or "").strip():
+            bare = _safe_ident(job_id, kind="job")
+            where = f"WHERE job_id = '{bare}'"
+        result = db.fetch(
+            "SELECT run_id, job_id, status, tests_total, tests_failed, "
+            "failed_rows, duration_ms, started_at, finished_at, message, incident_id "
+            f"FROM job_runs {where} ORDER BY started_at DESC LIMIT {n}",
+            max_rows=n,
+        )
+    except Exception as exc:  # noqa: BLE001 - thiếu bảng khi DB chưa seed
+        data_audit.log_tool_call(
+            "tool_get_job_history", "ERROR", str(job_id or "(all)"), "error", str(exc)[:200]
+        )
+        return {"ok": False, "error": f"Không đọc được bảng job_runs: {exc}"}
+    runs = result.get("rows") or []
+    payload: Dict[str, Any] = {
+        "ok": True,
+        "job_id": bare or None,
+        "returned_runs": len(runs),
+        "runs": runs,
+    }
+    if bare and not runs:
+        # Sai tên job là lỗi hay gặp của LLM — gợi ý danh sách thật để tự sửa.
+        try:
+            known = db.fetch(
+                "SELECT DISTINCT job_id FROM job_runs ORDER BY job_id", max_rows=50
+            ).get("rows") or []
+            payload["known_job_ids"] = [r.get("job_id") for r in known]
+        except Exception:  # noqa: BLE001 - gợi ý là phần thưởng thêm, không bắt buộc
+            pass
+    data_audit.log_tool_call(
+        "tool_get_job_history",
+        "HISTORY",
+        f"{bare or '(all)'} limit={n}",
+        "ok",
+        f"{len(runs)} lượt chạy",
+    )
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # 7c. Discovery động — schema / sample / shadow / atomic publish
 # ---------------------------------------------------------------------------
@@ -1276,6 +1333,38 @@ _LINEAGE_SCHEMA: Dict[str, Any] = {
     },
 }
 
+_JOB_HISTORY_SCHEMA: Dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "tool_get_job_history",
+        "description": (
+            "Tra cứu lịch sử chạy và trạng thái các pipeline job từ bảng job_runs "
+            "(run_id, status success/failed/error, số test fail, thời gian chạy, message). "
+            "Dùng khi cần mốc thời gian: lỗi bắt đầu từ run nào, job ingest nào chạy "
+            "ngay trước đó (tương quan timeline), hoặc khi engineer hỏi tình trạng "
+            "job. Chỉ đọc, không bao giờ ghi."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": (
+                        "Tên job cần tra, ví dụ 'build_stg_orders' hoặc "
+                        "'ingest_mobile_app_orders'. Để trống để lấy các lượt chạy "
+                        "gần nhất của toàn hệ thống."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Số lượt chạy tối đa (mặc định 5, tối đa 20).",
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
 _INCIDENT_CONTEXT_SCHEMA: Dict[str, Any] = {
     "type": "function",
     "function": {
@@ -1367,6 +1456,7 @@ TOOLS_SCHEMA += [
     _INSPECT_SHADOW_SCHEMA,
     _CLEANUP_SHADOW_SCHEMA,
     _LINEAGE_SCHEMA,
+    _JOB_HISTORY_SCHEMA,
 ]
 
 AUDITOR_TOOLS_SCHEMA: List[Dict[str, Any]] = [
@@ -1403,6 +1493,7 @@ AGENT_ALLOWED_TOOLS = {
     "tool_cleanup_shadow",
     "tool_verify_health",
     "tool_get_lineage",
+    "tool_get_job_history",
 }
 
 def _wrap_schema(table_name: str = "") -> Dict[str, Any]:
@@ -1439,6 +1530,7 @@ TOOL_FUNCTIONS: Dict[str, Callable[..., Dict[str, Any]]] = {
     "tool_verify_health": tool_verify_health,
     "tool_get_incident_context": tool_get_incident_context,
     "tool_get_lineage": tool_get_lineage,
+    "tool_get_job_history": tool_get_job_history,
     "tool_get_table_schema": _wrap_schema,
     "tool_sample_violations": tool_sample_violations,
     # --- WAP ---
@@ -1459,6 +1551,7 @@ _ALLOWED_ARGS: Dict[str, set[str]] = {
     "tool_verify_health": {"table_name", "check_sql"},
     "tool_get_incident_context": {"incident_id"},
     "tool_get_lineage": {"table_name", "depth"},
+    "tool_get_job_history": {"job_id", "limit"},
     "tool_get_table_schema": {"table_name"},
     "tool_sample_violations": {"table_name", "condition", "limit"},
     "tool_preflight_check": {"sql_query", "sql_script", "shadow_table", "prod_table"},
@@ -1543,6 +1636,7 @@ __all__ = [
     "tool_verify_health",
     "tool_get_incident_context",
     "tool_get_lineage",
+    "tool_get_job_history",
     "tool_get_table_schema",
     "tool_sample_violations",
     "tool_preflight_check",

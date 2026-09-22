@@ -386,21 +386,6 @@
               </div>
             </div>
 
-            <!-- Tab Switcher for Right Column -->
-            <div class="flex items-center gap-1 mb-2 mt-1">
-              <button id="tab-matrix-btn" class="right-panel-tab active px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-slate-800/80 border border-cyan-500/40 text-cyan-400">
-                <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
-                <span>📋 Remediation Matrix</span>
-              </button>
-              <button id="tab-chat-btn" class="right-panel-tab inactive px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-surface-2 text-slate-400 hover:text-slate-300">
-                <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
-                <span>💬 AI War Room Chat</span>
-                <span class="inline-flex items-center gap-0.5">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-glow animate-pulse"></span>
-                  <span class="text-[9px] text-emerald-glow/80">LIVE</span>
-                </span>
-              </button>
-            </div>
 
             <!-- Workflow Progress Stepper -->
             <div class="py-2 border-t border-white/5" id="stepper"></div>
@@ -602,7 +587,7 @@
                     <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
                     <span>Hành động cần phê duyệt: Thao tác đang được mở tại <strong>War Room Chat</strong></span>
                   </div>
-                  <button onclick="switchRightPanelTab('chat')" class="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all">
+                  <button onclick="openChatForApproval()" class="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all">
                     <span>Chuyển sang Chat để Duyệt</span>
                     <span>→</span>
                   </button>
@@ -612,49 +597,6 @@
 
             </div>
 
-            <!-- TAB 2: AI War Room Chat (Hidden by default) -->
-            <div id="tab-chat" class="right-panel-content inactive" style="display:none;">
-              <div class="glass-card rounded-2xl border border-cyan-500/20 overflow-hidden flex flex-col min-h-[700px]">
-                <div class="px-4 py-3 border-b border-white/5 bg-gradient-to-r from-surface-1/80 to-surface-2/80">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                      <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-accent/20 to-blue-600/20 border border-cyan-accent/30 flex items-center justify-center">
-                        <i data-lucide="bot" class="w-4 h-4 text-cyan-accent"></i>
-                      </div>
-                      <div>
-                        <h3 class="text-sm font-bold text-white">💬 AI War Room Chat</h3>
-                        <p class="text-[10px] text-slate-400">Chat trực tiếp với Agent 1 (SRE) & Agent 2 (Auditor)</p>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-glow/10 border border-emerald-glow/30">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-glow animate-pulse"></span>
-                        <span class="text-[10px] font-bold text-emerald-glow">LIVE</span>
-                      </span>
-                      <button onclick="switchRightPanelTab('matrix')" class="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-surface-2 text-slate-400 hover:text-white hover:bg-surface-3 border border-white/10">
-                        ← Quay lại Matrix
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- Chainlit Iframe Container (lazy-load khi mở tab lần đầu) -->
-                <div class="flex-1 overflow-hidden bg-[#0B0F17] relative" style="min-height:650px">
-                  <div id="chainlit-loading" class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-500 text-xs">
-                    <div class="w-8 h-8 border-2 border-white/10 border-t-cyan-400 rounded-full animate-spin"></div>
-                    <span>Đang tải AI War Room…</span>
-                    <a href="/chat" target="_blank" rel="noopener" class="text-cyan-400 hover:underline">Mở trong tab mới ↗</a>
-                  </div>
-                  <iframe
-                    src="/chat/"
-                    id="chainlit-iframe"
-                    class="w-full relative z-10"
-                    style="height:650px;border:none;display:block;"
-                    title="AI War Room Chat">
-                  </iframe>
-                </div>
-              </div>
-            </div>
 
           </div>
 
@@ -1182,119 +1124,8 @@ SELECT * FROM stg_orders LIMIT 50;"></textarea>
 
 
 
-  /* ============================================================ */
-  /* RIGHT PANEL TAB SWITCHING (Remediation Matrix ↔ AI War Room Chat) */
-  /* ============================================================ */
-
-  function switchRightPanelTab(tabName) {
-    console.log(`🔄 Switching right panel to: ${tabName}`);
-    console.log(`🔍 Current tab elements:`, {
-      matrixTab: $id('tab-matrix'),
-      chatTab: $id('tab-chat'),
-      matrixBtn: $id('tab-matrix-btn'),
-      chatBtn: $id('tab-chat-btn'),
-      iframe: $id('chainlit-iframe')
-    });
-    
-    // Update tab buttons
-    const matrixBtn = $id('tab-matrix-btn');
-    const chatBtn = $id('tab-chat-btn');
-    
-    if (tabName === 'matrix') {
-      matrixBtn.classList.remove('inactive');
-      matrixBtn.classList.add('active');
-      matrixBtn.className = 'right-panel-tab active px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-slate-800/80 border border-cyan-500/40 text-cyan-400';
-      
-      chatBtn.classList.remove('active');
-      chatBtn.classList.add('inactive');
-      chatBtn.className = 'right-panel-tab inactive px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-surface-2 text-slate-400 hover:text-slate-300';
-      
-      // Show matrix content, hide chat
-      const matrixTab = $id('tab-matrix');
-      const chatTab = $id('tab-chat');
-      
-      matrixTab.style.display = 'block';
-      matrixTab.classList.add('active');
-      matrixTab.classList.remove('inactive');
-      
-      chatTab.style.display = 'none';
-      chatTab.classList.remove('active');
-      chatTab.classList.add('inactive');
-      
-      toast({
-        title: '📋 Đã chuyển sang Remediation Matrix',
-        message: 'Đang xem chi tiết sự cố và kế hoạch khắc phục',
-        type: 'info',
-        duration: 2000,
-      });
-      
-    } else if (tabName === 'chat') {
-      matrixBtn.classList.remove('active');
-      matrixBtn.classList.add('inactive');
-      matrixBtn.className = 'right-panel-tab inactive px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-surface-2 text-slate-400 hover:text-slate-300';
-      
-      chatBtn.classList.remove('inactive');
-      chatBtn.classList.add('active');
-      chatBtn.className = 'right-panel-tab active px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all duration-200 bg-slate-800/80 border border-cyan-500/40 text-cyan-400';
-      
-      // Show chat content, hide matrix
-      const matrixTab = $id('tab-matrix');
-      const chatTab = $id('tab-chat');
-      
-      matrixTab.style.display = 'none';
-      matrixTab.classList.remove('active');
-      matrixTab.classList.add('inactive');
-      
-      chatTab.style.display = 'block';
-      chatTab.style.visibility = 'visible'; 
-      chatTab.style.opacity = '1';
-      chatTab.classList.add('active');
-      chatTab.classList.remove('inactive');
-      
-      console.log('🎯 Chat tab should now be visible:', {
-        display: chatTab.style.display,
-        visibility: chatTab.style.visibility,
-        opacity: chatTab.style.opacity,
-        classList: Array.from(chatTab.classList)
-      });
-      
-      // Hide loading spinner when chat tab is shown (iframe loads automatically now)
-      const loading = $id('chainlit-loading');
-      if (loading) {
-        loading.style.display = 'none';
-      }
-      
-      const iframe = $id('chainlit-iframe');
-      console.log(`🔍 Iframe found:`, !!iframe, iframe?.src);
-      
-      if (iframe) {
-        iframe.addEventListener('load', () => {
-          console.log('🎯 Chainlit iframe loaded successfully!');
-          if (loading) {
-            loading.style.display = 'none';
-          }
-        });
-        
-        iframe.addEventListener('error', () => {
-          console.error('❌ Chainlit iframe failed to load!');
-        });
-      }
-      
-      toast({
-        title: '💬 Đã chuyển sang AI War Room Chat',
-        message: 'Chat trực tiếp với Agent 1 (SRE) & Agent 2 (Auditor)',
-        type: 'info',
-        duration: 2000,
-      });
-    }
-    
-    // Update global state
-    APP.rightPanelTab = tabName;
-  }
-
   // Expose navigation helpers globally
   window.switchView = switchView;
-  window.switchRightPanelTab = switchRightPanelTab;
 
   /* STEPPER */
   function renderStepper(phase) {
@@ -1667,7 +1498,6 @@ SELECT * FROM stg_orders LIMIT 50;"></textarea>
       $id('wap-hint').textContent = wapHint(st);
 
       renderWapDiff(st.diff, st);
-      renderWapActions(st);
       renderTriageAlert(st);
       await loadWapPreview(incidentId, APP.wapTab || 'prod');
       lucide.createIcons();
@@ -1758,209 +1588,8 @@ SELECT * FROM stg_orders LIMIT 50;"></textarea>
     $id('wap-triage-reason').textContent = reason + (extra.length ? ` — ${extra.join(' · ')}` : '');
   }
 
-  /* DYNAMIC ACTION BAR — chỉ vẽ những nút backend cho phép */
-  function renderWapActions(st) {
-    // Gate actions moved to War Room Chat — dashboard shows status bar only.
-    // Giữ hàm (caller ở loadWapPanel vẫn gọi) nhưng không render nút nào nữa.
-    return;
-    const actions = st.next_actions || [];
-    const id = st.incident_id;
-    const html = [];
-    
-    console.log(`🔧 Rendering WAP actions for ${id}:`, {
-      status: st.status,
-      actions: actions,
-      shadow: st.shadow_table,
-      prod: st.prod_table
-    });
 
-    if (actions.includes('approve_shadow')) {
-      html.push(`
-        <button data-wap="approve_shadow" class="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold
-                 bg-emerald-glow/15 text-emerald-glow border border-emerald-glow/40 hover:bg-emerald-glow/25 animate-glow active:scale-[0.98]">
-          <i data-lucide="flask-conical" class="w-4 h-4"></i> 🧪 Duyệt Chạy Thử Trên Staging
-          <span class="text-[10px] font-normal opacity-70">(bảng thật không bị chạm)</span>
-        </button>`);
-    }
 
-    if (actions.includes('publish_prod')) {
-      html.push(`
-        <button data-wap="publish_prod" class="w-full inline-flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl text-xs font-extrabold
-                 bg-gradient-to-r from-emerald-500 via-emerald-glow to-teal-400 text-[#04140D] shadow-lg shadow-emerald-glow/30
-                 hover:shadow-emerald-glow/50 hover:scale-[1.01] active:scale-[0.98]">
-          <i data-lucide="rocket" class="w-4 h-4"></i> 🚀 PUBLISH TO PRODUCTION (Bảng Thật)
-        </button>
-        <p class="text-[10px] text-slate-500 text-center font-mono">
-          Atomic swap: <code>${esc(st.shadow_table)}</code> → <code>${esc(st.prod_table)}</code>
-        </p>`);
-    }
-
-    if (actions.includes('replan')) {
-      const used = st.retry_count || 0;
-      const max = st.max_replan || 1;
-      const exhausted = used >= max;
-      html.push(`
-        <button data-wap="replan" ${exhausted ? 'disabled' : ''}
-                class="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold border active:scale-[0.98] ${
-          exhausted ? 'bg-surface-2 text-slate-600 border-white/5 cursor-not-allowed'
-                    : 'bg-cyan-accent/15 text-cyan-accent border-cyan-accent/40 hover:bg-cyan-accent/25'}">
-          <i data-lucide="bot" class="w-4 h-4"></i> 🤖 Cho Agent 1 Re-plan (${used}/${max})
-          ${exhausted ? '<span class="text-[10px] font-normal">— đã hết lượt</span>' : ''}
-        </button>`);
-    }
-
-    if (actions.includes('manual_override')) {
-      html.push(`
-        <button data-wap="manual_override" class="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold
-                 bg-amber-accent/15 text-amber-accent border border-amber-accent/40 hover:bg-amber-accent/25 active:scale-[0.98]">
-          <i data-lucide="pencil-ruler" class="w-4 h-4"></i> ✏️ Sửa SQL Thủ Công
-        </button>`);
-    }
-
-    if (actions.includes('cancel_shadow')) {
-      html.push(`
-        <button data-wap="cancel_shadow" class="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold
-                 bg-rose-pulse/10 text-rose-pulse border border-rose-pulse/30 hover:bg-rose-pulse/20 active:scale-[0.98]">
-          <i data-lucide="trash-2" class="w-4 h-4"></i> 🛑 Huỷ Bỏ & Xoá Staging
-        </button>`);
-    }
-
-    if (!html.length) {
-      const done = st.status === 'PUBLISHED_RESOLVED';
-      html.push(`
-        <div class="p-3 rounded-xl text-center text-[11px] ${
-          done ? 'bg-emerald-glow/10 border border-emerald-glow/30 text-emerald-glow'
-               : 'bg-surface-2/70 border border-white/10 text-slate-400'}">
-          ${done ? '🎉 Sự cố đã xử lý xong và publish lên production.'
-                 : st.status === 'STAGING_VERIFYING'
-                   ? '🕵️‍♀️ Agent 2 đang nghiệm thu trên bảng bóng, anh chờ em một chút ạ…'
-                   : 'Không có hành động nào ở trạng thái này.'}
-        </div>`);
-    }
-
-    box.innerHTML = html.join('');
-    console.log(`✅ Rendered ${html.length} action items`);
-    
-    box.querySelectorAll('[data-wap]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        console.log(`🎯 WAP action clicked: ${btn.dataset.wap}`);
-        runWapAction(btn.dataset.wap, id, btn);
-      });
-    });
-    lucide.createIcons();
-  }
-
-  async function runWapAction(action, incidentId, btn) {
-    if (action === 'manual_override') { openSqlStudio(); return; }
-
-    const st = APP.wap || {};
-    const details = {
-      prod_table: st.prod_table,
-      shadow_table: st.shadow_table,
-      rows_prod_before: st.diff?.rows_prod,
-      rows_shadow: st.diff?.rows_shadow,
-    };
-
-    // Sử dụng confirm modal mới
-    const confirmed = await wapConfirm(action, incidentId, details);
-    if (!confirmed) return;
-
-    const endpoints = {
-      approve_shadow: '/api/approve-shadow',
-      publish_prod: '/api/publish-prod',
-      replan: '/api/replan',
-      cancel_shadow: '/api/cancel-shadow',
-    };
-
-    const feedbackConfigs = {
-      approve_shadow: {
-        loadingText: 'Đang chạy trên staging và cho Agent 2 nghiệm thu…',
-        successTitle: '🧪 Đã chạy trên Staging',
-        successMessage: 'Agent 2 đang nghiệm thu bảng bóng…',
-        errorTitle: 'Chạy Staging thất bại',
-      },
-      publish_prod: {
-        loadingText: 'Đang tráo bảng sang production…',
-        successTitle: '🚀 Đã Publish',
-        successMessage: 'Bảng production đã nhận dữ liệu sạch từ bảng bóng',
-        errorTitle: 'Publish thất bại',
-      },
-      replan: {
-        loadingText: 'Agent 1 đang soạn lại phương án…',
-        successTitle: '🤖 Agent 1 re‑plan',
-        successMessage: 'Agent 1 đã đề xuất phương án v2',
-        errorTitle: 'Re‑plan thất bại',
-      },
-      cancel_shadow: {
-        loadingText: 'Đang dọn bảng bóng…',
-        successTitle: '🗑️ Đã huỷ',
-        successMessage: 'Đã xoá bảng bóng, bảng production nguyên vẹn',
-        errorTitle: 'Huỷ thất bại',
-      },
-    };
-
-    const cfg = feedbackConfigs[action] || {};
-    if (btn) btn.disabled = true;
-
-    try {
-      const res = await apiWithFeedback(endpoints[action], {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ incident_id: incidentId }),
-      }, cfg);
-
-      notifyWapResult(action, res);
-    } catch (err) {
-      // Error đã được xử lý trong apiWithFeedback
-    } finally {
-      if (btn) btn.disabled = false;
-      await loadIncidentDossier(incidentId);
-    }
-  }
-
-  function notifyWapResult(action, res) {
-    if (action === 'approve_shadow' && res.audit) {
-      const ready = res.audit.is_ready_for_production;
-      const d = res.diff || {};
-      if (ready) {
-        toast({
-          title: '✅ Nghiệm thu ĐẠT',
-          message: `Bảng bóng: ${d.rows_shadow} dòng · ${d.violations_shadow} vi phạm\nBảng thật: ${d.rows_prod} dòng (chưa bị chạm)\n\nNút [🚀 Publish] đã được mở.`,
-          type: 'success',
-          duration: 6000,
-        });
-      } else {
-        const errMsg = (res.audit.failed_details || {}).error_message || '';
-        toast({
-          title: '🛑 Nghiệm thu KHÔNG ĐẠT',
-          message: `${errMsg}\n\nBảng production vẫn nguyên vẹn. Anh chọn 1 trong 3 hướng cứu hộ.`,
-          type: 'error',
-          duration: 8000,
-        });
-      }
-    } else if (action === 'publish_prod' && res.publish) {
-      toast({
-        title: '🎉 Đã publish lên production',
-        message: `${res.publish.prod_table}: ${res.publish.rows_prod_before} → ${res.publish.rows_prod_after} dòng\n\n${res.next_step || '—'}`,
-        type: 'success',
-        duration: 7000,
-      });
-    } else if (action === 'replan') {
-      toast({
-        title: '🤖 Agent 1 re‑plan',
-        message: res.summary || 'Đã xử lý.',
-        type: 'info',
-        duration: 5000,
-      });
-    } else if (action === 'cancel_shadow') {
-      toast({
-        title: '🗑️ Đã huỷ',
-        message: 'Đã dọn bảng bóng. Bảng production không bị thay đổi.',
-        type: 'info',
-        duration: 4000,
-      });
-    }
-  }
 
   /* TAB LIVE / SHADOW PREVIEW */
   async function loadWapPreview(incidentId, which) {
@@ -2253,6 +1882,44 @@ SELECT * FROM stg_orders LIMIT 50;"></textarea>
     }
   }
 
+  /* Mở Chainlit /chat ở tab mới kèm incident đang chọn.
+     Mọi thao tác phê duyệt (approve / audit / publish) thực hiện trong /chat. */
+  async function openChatForApproval() {
+    const incidentId = APP.activeIncidentId;
+    const chatUrl = window.location.origin + '/chat/';
+    if (!incidentId) {
+      toast({
+        title: '⚠️ Chưa chọn sự cố',
+        message: 'Hãy click một incident/job lỗi trước, rồi mở chat để duyệt.',
+        type: 'warning',
+        duration: 4000,
+      });
+      window.open(chatUrl, '_blank');
+      return;
+    }
+    try {
+      showLoading('Đang gửi thông tin sự cố sang War Room Chat...');
+      await api(`/api/incidents/${encodeURIComponent(incidentId)}/select`, { method: 'POST' });
+      hideLoading();
+      toast({
+        title: '💬 Đã gửi sự cố sang War Room Chat',
+        message: `${incidentId} — chat sẽ nạp đúng ca này để phê duyệt.`,
+        type: 'success',
+        duration: 3000,
+      });
+    } catch (err) {
+      hideLoading();
+      toast({
+        title: '⚠️ Không gửi được incident',
+        message: (err.message || '') + ' — vẫn mở chat, bạn chọn ca trong chat.',
+        type: 'warning',
+        duration: 5000,
+      });
+    }
+    window.open(chatUrl, '_blank');
+  }
+  window.openChatForApproval = openChatForApproval;
+
   /* INIT & EVENT LISTENERS */
   function init() {
     lucide.createIcons();
@@ -2270,67 +1937,6 @@ SELECT * FROM stg_orders LIMIT 50;"></textarea>
         duration: 5000,
       });
       
-      // Test tab elements after page fully loads
-      console.log('🔍 Testing elements after page load...');
-      testTabSwitching();
-      
-      // AUTO-SWITCH TO CHAT TAB FOR TESTING
-      setTimeout(() => {
-        console.log('🚀 Auto-switching to chat tab for testing...');
-        switchRightPanelTab('chat');
-      }, 2000);
-    }, 800);
-
-    // --- RIGHT PANEL TAB SWITCHING ---
-    const matrixBtn = $id('tab-matrix-btn');
-    const chatBtn = $id('tab-chat-btn');
-    
-    console.log('🔍 Tab elements found:', { 
-      matrixBtn: !!matrixBtn, 
-      chatBtn: !!chatBtn,
-      matrixBtnElement: matrixBtn,
-      chatBtnElement: chatBtn
-    });
-    
-    if (matrixBtn) {
-      matrixBtn.addEventListener('click', () => {
-        console.log('🖱️ Matrix button clicked');
-        switchRightPanelTab('matrix');
-      });
-    } else {
-      console.error('❌ Matrix button not found!');
-    }
-    
-    if (chatBtn) {
-      chatBtn.addEventListener('click', () => {
-        console.log('🖱️ Chat button clicked');
-        switchRightPanelTab('chat');
-      });
-    } else {
-      console.error('❌ Chat button not found!');
-    }
-
-    // Ẩn spinner khi iframe đã tải xong (bỏ qua lần load about:blank ban đầu)
-    const chainlitIframe = $id('chainlit-iframe');
-    if (chainlitIframe) {
-      chainlitIframe.addEventListener('load', () => {
-        let href = '';
-        try { href = chainlitIframe.contentWindow.location.href; } catch (_) {}
-        if (href === 'about:blank') return;
-        const loading = $id('chainlit-loading');
-        if (loading) loading.classList.add('hidden');
-      });
-    }
-    
-    // Update old chat button to use new tab system
-    const oldChatBtn = $id('btn-open-hitl-chat');
-    if (oldChatBtn) {
-      oldChatBtn.addEventListener('click', () => {
-        // Still open in new tab for backward compatibility
-        window.open('/chat', '_blank');
-      });
-    }
-
     // --- WAP: tab preview + modal SQL Studio ---
     $id('tab-live').addEventListener('click', () => {
       loadWapPreview(APP.activeIncidentId, 'prod');
@@ -2732,45 +2338,6 @@ SELECT * FROM stg_orders LIMIT 50;"></textarea>
   }
 
   /* Quick helper for WAP actions */
-  function wapConfirm(action, incidentId, details = {}) {
-    const configs = {
-      publish_prod: {
-        title: '🚀 PUBLISH TO PRODUCTION',
-        message: 'Xác nhận PUBLISH lên bảng production?\n\nHệ thống sẽ tráo bảng bóng thành bảng thật trong một transaction. Bảng cũ bị thay thế.',
-        type: 'warning',
-        details: `🔧 ${details.prod_table || 'production'} → ${details.shadow_table || 'shadow'}\n📊 ${details.rows_prod_before || '?'} → ${details.rows_shadow || '?'} dòng`,
-        confirmText: 'PUBLISH',
-      },
-      cancel_shadow: {
-        title: '🛑 Huỷ phương án',
-        message: 'Huỷ phương án và xoá bảng bóng?\n\nBảng production chưa bị thay đổi nên không mất dữ liệu.',
-        type: 'warning',
-        details: `🧪 Bảng bóng: ${details.shadow_table || 'shadow_*'}\n🗂️ Bảng thật: ${details.prod_table || 'production'} (nguyên vẹn)`,
-        confirmText: 'Huỷ & Xoá',
-      },
-      approve_shadow: {
-        title: '🧪 Duyệt chạy thử trên Staging',
-        message: 'Chạy script vá trên bảng bóng. Agent 2 sẽ nghiệm thu ngay trên đó.\n\nBảng production KHÔNG bị chạm ở bước này.',
-        type: 'info',
-        details: `🗂️ Bảng thật: ${details.prod_table || '?'} (không chạm)\n🧪 Bảng bóng: ${details.shadow_table || 'shadow_*'}`,
-        confirmText: 'Duyệt chạy thử',
-      },
-      manual_override: {
-        title: '✏️ Sửa SQL thủ công',
-        message: 'Mở SQL Studio để sửa script staging bằng tay.\n\nScript vẫn qua guard + preflight trước khi chạy.',
-        type: 'info',
-        confirmText: 'Mở SQL Studio',
-      },
-    };
-
-    const cfg = configs[action] || {
-      title: 'Xác nhận',
-      message: `Thực hiện hành động "${action}"?`,
-      type: 'warning',
-    };
-
-    return confirmModal(cfg);
-  }
 
   /* Wrapper for API calls with toast feedback */
   async function apiWithFeedback(endpoint, options = {}, feedback = {}) {

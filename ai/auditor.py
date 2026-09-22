@@ -1440,12 +1440,63 @@ class DataAuditorAgent:
 # ---------------------------------------------------------------------------
 
 
+#: Trạng thái đóng mà chạy audit lại là vô nghĩa VÀ sai lệch (shadow đã bị
+#: swap/xoá sau publish nên Agent 2 không còn gì để soi — chạy sẽ báo FAIL oan).
+AUDIT_LOCKED_STATUSES = ("PUBLISHED", "PUBLISHED_RESOLVED")
+
+AUDIT_SKIPPED_SUMMARY = (
+    "Sự cố này đã được Publish vào Production thành công. "
+    "Bảng Staging đã hoàn tất tráo đổi nên không thể và không cần Audit lại."
+)
+
+
+def audit_locked_status(incident_id: str) -> str:
+    """Trả về status hiện tại nếu incident đang bị khoá audit, ngược lại ""."""
+    if not incident_id:
+        return ""
+    try:
+        from data import incident_store
+
+        st = incident_store.current_status(incident_id) or ""
+    except Exception:  # noqa: BLE001 - không đọc được DB thì không chặn
+        return ""
+    return st if st in AUDIT_LOCKED_STATUSES else ""
+
+
+def build_audit_skipped(incident_id: str, status: str) -> Dict[str, Any]:
+    """
+    Payload SKIPPED khi audit bị khoá sau publish. Cùng shape với
+    `run_audit_headless` để mọi caller (REST/chat) xử lý chung không vỡ.
+    """
+    return {
+        "ok": True,
+        "skipped": True,
+        "mode": "locked",
+        "verdict": "SKIPPED",
+        "status": status,
+        "incident_id": incident_id,
+        "is_ready_for_production": False,
+        "certification_summary": AUDIT_SKIPPED_SUMMARY,
+        "audit_report": None,
+        "shadow_table": "",
+        "shadow_diff": None,
+        "failed_details": None,
+        "tool_calls": [],
+    }
+
+
 def run_audit_headless(
     incident: Optional[IncidentInput] = None,
     remediation_report: Optional[AgentReport] = None,
     shadow_table: str = "",
 ) -> Dict[str, Any]:
     """Chạy Agent 2 không cần UI (dùng cho REST API / cron / test)."""
+    iid = (getattr(incident, "incident_id", "") or "") or (
+        getattr(remediation_report, "incident_id", "") or ""
+    )
+    locked = audit_locked_status(iid)
+    if locked:
+        return build_audit_skipped(iid, locked)
     auditor = DataAuditorAgent()
     report = auditor.audit(
         incident=incident, remediation_report=remediation_report, shadow_table=shadow_table
@@ -1469,6 +1520,10 @@ __all__ = [
     "derive_violation_sql",
     "run_audit_headless",
     "AUDITOR_SYSTEM_PROMPT",
+    "AUDIT_LOCKED_STATUSES",
+    "AUDIT_SKIPPED_SUMMARY",
+    "audit_locked_status",
+    "build_audit_skipped",
 ]
 
 

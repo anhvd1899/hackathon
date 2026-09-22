@@ -117,6 +117,9 @@ lineage thật. Bạn chỉ lo cách ly dữ liệu bẩn — một việc, làm
 - `tool_execute_shadow_remediation(shadow_script, prod_table)` : chạy script trên bảng bóng.
   Chỉ gọi được sau khi engineer duyệt bước 1.
 - `tool_inspect_shadow(prod_table, violation_sql)` : so bảng bóng với bảng thật.
+- `tool_get_job_history(job_id, limit)` : tra lịch sử chạy các pipeline job từ bảng
+  `job_runs` (chỉ đọc: status, số test fail, mốc thời gian). Dùng khi cần dựng
+  timeline nhân–quả hoặc khi engineer hỏi tình trạng job.
 - `tool_cleanup_shadow(shadow_table)` : dọn bảng bóng khi huỷ phương án.
 - `tool_verify_health(table_name, check_sql)` : verify lại sau khi vá.
 
@@ -130,6 +133,9 @@ lineage thật. Bạn chỉ lo cách ly dữ liệu bẩn — một việc, làm
    c. Xem sample vài dòng lỗi thật để mô tả cụ thể.
    d. Kiểm tra bảng hạ nguồn (mart_*) đã bị nhiễm dữ liệu bẩn chưa.
    e. Kiểm tra `dq_test_results` xem còn test nào khác fail cùng lúc.
+   f. Nếu nghi lỗi mới xuất hiện: gọi `tool_get_job_history` cho job lỗi và các job
+      ingest liên quan, so mốc `started_at` để chỉ rõ tương quan thời gian trong chẩn đoán
+      (ví dụ: fail bắt đầu ngay sau run ingest nào).
 3. **DIAGNOSE** — Tổng hợp bằng chứng thành root cause. CẤM phỏng đoán số liệu:
    mọi con số bạn viết ra phải xuất phát từ kết quả query. Nếu chưa query thì phải query.
 4. **IMPACT** — Đọc `lineage_fact_orders` để biết bảng/dashboard hạ nguồn, đọc
@@ -153,6 +159,8 @@ lineage thật. Bạn chỉ lo cách ly dữ liệu bẩn — một việc, làm
 Trong lúc chờ duyệt, engineer sẽ chất vấn bạn ("tại sao lại lỗi?", "show 5 dòng dữ liệu",
 "nếu xoá thì doanh thu giảm bao nhiêu?"). Hãy:
 - Nếu câu hỏi cần số liệu -> GỌI `tool_query_duckdb` để lấy dữ liệu thật rồi mới trả lời.
+- Nếu engineer hỏi về tình trạng/lịch sử job (job nào success, fail từ khi nào) ->
+  GỌI `tool_get_job_history` (kèm `job_id` nếu hỏi job cụ thể) rồi trả lời đúng mốc thời gian.
 - Trả lời ngắn gọn, có số liệu, có bảng markdown khi liệt kê dữ liệu.
 - Nếu engineer chỉ ra bạn sai hoặc yêu cầu đổi phương án -> điều tra lại và re-plan.
 
@@ -1482,6 +1490,26 @@ class DataReliabilityAgent:
         """
         self.messages.append({"role": "user", "content": question})
         return self._agent_loop(max_iterations=max(4, self.settings.max_iterations // 2))
+
+    def ask_consult(self, question: str, context_note: str = "") -> str:
+        """
+        Chế độ tư vấn sau resolve (POST-RESOLUTION CONSULTANT).
+
+        Chỉ gọi LLM MỘT lần với `use_tools=False` nên về mặt cấu trúc KHÔNG THỂ
+        gọi bất kỳ tool nào (kể cả preflight/shadow) — chống state leak kiểu
+        "sự cố đã publish xong nhưng agent vẫn chạy lại quy trình vá".
+        Trả lời dựa trên dữ liệu đã có trong hội thoại.
+        """
+        if context_note.strip():
+            self.messages.append({"role": "user", "content": context_note.strip()})
+        self.messages.append({"role": "user", "content": question})
+        try:
+            response = self._completion(use_tools=False)
+            content = getattr(response.choices[0].message, "content", "") or ""
+        except Exception as exc:  # noqa: BLE001
+            content = f"(Không gọi được LLM để tư vấn: {exc})"
+        self.messages.append({"role": "assistant", "content": content})
+        return content
 
     # -- BƯỚC 6-8: execute -> verify -> resolve ----------------------------
 
